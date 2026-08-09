@@ -294,6 +294,15 @@ class PMScraperTests(unittest.TestCase):
         run(t, "--apply", "--only-missing", expect=0)
         self.assertTrue(t.games()["./Balatro.sh"].findtext("image"))
 
+    def test_progress_is_safe_with_no_es(self):
+        # --progress posts to 127.0.0.1:1234; with no ES listening it must
+        # degrade silently, not crash or fail the run.
+        t = self.tree
+        t.add_port("Balatro", "Balatro.sh")
+        t.add_art("balatro")
+        run(t, "--apply", "--progress", expect=0)
+        self.assertTrue(t.games()["./Balatro.sh"].findtext("image"))
+
     # --- output hygiene (PLAN verification 3) ---------------------------- #
 
     def test_all_emitted_tags_are_valid(self):

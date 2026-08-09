@@ -88,6 +88,7 @@ and prints a full report. Only `--apply` ever writes.
 | `--prune` | remove gamelist entries whose `.sh` is gone |
 | `--no-fuzzy` | treat title-only catalog matches as unknown |
 | `--port-dates` | use the port's release date as `<releasedate>` |
+| `--progress` | per-port ES toast `name [x/y]` while scraping (visible only while ES is foreground — the auto-run hook or an SSH run) |
 | `--report FILE` / `--csv` | write the full classification breakdown |
 | `--no-reload` / `--restart-es` | control how ES refreshes afterward |
 

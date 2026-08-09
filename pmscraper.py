@@ -301,12 +301,13 @@ def port_stem(info):
 # Online fill-in
 # --------------------------------------------------------------------------- #
 
-def fetch(url, binary=False, timeout=30):
+def fetch(url, binary=False, timeout=30, data=None, method=None):
     import urllib.request
-    req = urllib.request.Request(url, headers={"User-Agent": f"pmscraper/{VERSION}"})
+    req = urllib.request.Request(url, data=data, method=method,
+                                 headers={"User-Agent": f"pmscraper/{VERSION}"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data = resp.read()
-    return data if binary else data.decode("utf-8")
+        out = resp.read()
+    return out if binary else out.decode("utf-8")
 
 
 def load_online_catalog(cache_file):
@@ -481,6 +482,25 @@ def reload_es(timeout=5):
         log(f"  ! reload failed ({err}); use the menu's Update Gamelists, "
             f"or pass --restart-es")
         return False
+
+
+def notify_es(message, timeout=2):
+    """POST /notify - a short on-screen toast on the handheld (best-effort).
+
+    Only visible while ES is in the foreground (the auto-run hook, or an SSH run
+    from the menu) - not when this runs as a port launched from the Ports menu,
+    since ES is then backgrounded behind the launcher."""
+    try:
+        fetch(f"http://{ES_HOST}:{ES_PORT}/notify",
+              data=message.encode("utf-8"), method="POST", timeout=timeout)
+        return True
+    except Exception:
+        return False
+
+
+def progress_bar(done, total, width=10):
+    filled = int(round(width * done / total)) if total else width
+    return "[" + "#" * filled + "-" * (width - filled) + "]"
 
 
 def restart_es():
@@ -710,6 +730,9 @@ def main(argv=None):
                     help="write the full classification breakdown to FILE")
     ap.add_argument("--csv", action="store_true",
                     help="make --report write CSV instead of Markdown")
+    ap.add_argument("--progress", action="store_true",
+                    help="post a per-port ES toast 'name [x/y]' while scraping "
+                         "(only visible while ES is in the foreground)")
     ap.add_argument("--no-reload", action="store_true",
                     help="do not call ES /reloadgames after --apply")
     ap.add_argument("--restart-es", action="store_true",
@@ -776,9 +799,20 @@ def main(argv=None):
     # Merge into the gamelist - uniform: write whatever fields an entry carries.
     changed = added = pruned = 0
 
+    # Per-port progress toasts (opt-in): count the identified ports we'll write,
+    # so the counter denominator matches what actually scrolls by.
+    show_progress = args.progress and args.apply
+    to_scrape = sum(1 for e in entries if e.identifiable and e.fields)
+    done = 0
+
     for e in entries:
         if not e.fields:
             continue
+
+        if show_progress and e.identifiable:
+            done += 1
+            notify_es(f"{e.fields['name']} [{done}/{to_scrape}] "
+                      f"{progress_bar(done, to_scrape)}")
 
         game = by_path.get(e.path)
         touched = False

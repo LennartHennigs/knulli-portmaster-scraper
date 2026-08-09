@@ -19,6 +19,10 @@ Coverage, reporting, auto-run, and the on-device install.
   `--restart-es` is the fallback. The game-end hook posts a `/notify` toast.
 - New flags: `--only-missing`, `--stub-unknown`, `--prune`, `--no-fuzzy`,
   `--prefer-covers`, `--no-reload`, `--report`, `--csv`.
+- `--progress`: posts a per-port `/notify` toast `name [x/y]` with an ASCII bar
+  while scraping (the auto-run hook enables it). Visible only while ES is in the
+  foreground - the ES scraper's native progress widget isn't reachable over the
+  HTTP API, so this is the closest external equivalent.
 - New gamelist fields: `tags` (raw genres, for ES filtering) and `titleshot`
   (screenshot alias).
 - `install.sh` (preflight, exFAT-aware permissions, verify, `--uninstall`,

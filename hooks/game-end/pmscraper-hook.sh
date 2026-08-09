@@ -32,10 +32,11 @@ done
 LOG=/tmp/pmscraper-hook.log
 
 # --only-missing keeps the auto-run fast: it fills just the ports the fresh
-# install added. pmscraper itself calls ES /reloadgames when anything changed.
-python3 "$PMSCRAPER" --apply --only-missing --report "$LOG" >>"$LOG" 2>&1
+# install added. --progress shows a per-port toast (ES is in the foreground
+# here, so it's visible). pmscraper calls ES /reloadgames when anything changed.
+python3 "$PMSCRAPER" --apply --only-missing --progress --report "$LOG" >>"$LOG" 2>&1
 
-# Toast the result on the handheld (best-effort; some builds lack /notify).
+# Final summary toast (best-effort; some builds lack /notify).
 SUMMARY=$(grep -E '^(scraped|unknown)' "$LOG" | tr '\n' ' ')
 if [ -n "$SUMMARY" ]; then
     curl -s -m 3 -X POST --data "pmscraper: $SUMMARY" \
