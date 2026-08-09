@@ -72,8 +72,9 @@ MANAGED_TAGS = (
     "developer", "publisher", "releasedate", "rating",
 )
 
-# The port's own launcher - never a scrapeable game, always skipped.
-PORTMASTER_LAUNCHER = "PortMaster.sh"
+# Top-level launchers that are tools, not scrapeable games - always skipped so
+# they don't show up as "unknown": PortMaster itself, and our own Ports entry.
+SKIP_LAUNCHERS = frozenset(("PortMaster.sh", "PortMaster Scraper.sh"))
 
 # ES game extensions for the ports system (es_systems.yml: [sh, squashfs]).
 ES_EXTENSIONS = (".sh", ".squashfs")
@@ -211,7 +212,7 @@ def enumerate_es_entries(ports_dir):
                 continue
             if os.path.splitext(fn)[1].lower() not in ES_EXTENSIONS:
                 continue
-            if depth == 0 and fn == PORTMASTER_LAUNCHER:
+            if depth == 0 and fn in SKIP_LAUNCHERS:
                 continue
             rel = fn if depth == 0 else str(rel_dir / fn)
             entries[normalise_path(rel)] = depth > 0
