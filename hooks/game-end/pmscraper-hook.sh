@@ -13,17 +13,19 @@ MARKER=/tmp/pmscraper.trigger
 [ -f "$MARKER" ] || exit 0
 rm -f "$MARKER"
 
-# Locate pmscraper.py (install.sh puts it beside PortMaster's own files).
+# Locate pmscraper.py (install.sh puts it beside PortMaster's own files). Same
+# ordered PortMaster-dir list install.sh installs into - keep the two in sync.
 XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 PMSCRAPER=""
-for cand in \
-    "$XDG_DATA_HOME/PortMaster/pmscraper/pmscraper.py" \
-    /userdata/system/.local/share/PortMaster/pmscraper/pmscraper.py \
-    /opt/system/Tools/PortMaster/pmscraper/pmscraper.py \
-    /roms/ports/PortMaster/pmscraper/pmscraper.py \
-    /storage/roms/ports/PortMaster/pmscraper/pmscraper.py
+for base in \
+    /opt/system/Tools/PortMaster \
+    /opt/tools/PortMaster \
+    "$XDG_DATA_HOME/PortMaster" \
+    /userdata/system/.local/share/PortMaster \
+    /roms/ports/PortMaster \
+    /storage/roms/ports/PortMaster
 do
-    [ -f "$cand" ] && PMSCRAPER="$cand" && break
+    [ -f "$base/pmscraper/pmscraper.py" ] && PMSCRAPER="$base/pmscraper/pmscraper.py" && break
 done
 [ -n "$PMSCRAPER" ] || exit 0
 

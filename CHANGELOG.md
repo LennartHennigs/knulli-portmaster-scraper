@@ -16,7 +16,7 @@ Coverage, reporting, auto-run, and the on-device install.
   `--no-fuzzy` demotes those to `unknown`.
 - **ES reload over HTTP** — `GET 127.0.0.1:1234/reloadgames` runs by default
   after `--apply` so art appears without a restart. `--no-reload` opts out;
-  `--restart-es` is the fallback. `notify_es()` posts a toast for the hook.
+  `--restart-es` is the fallback. The game-end hook posts a `/notify` toast.
 - New flags: `--only-missing`, `--stub-unknown`, `--prune`, `--no-fuzzy`,
   `--prefer-covers`, `--no-reload`, `--report`, `--csv`.
 - New gamelist fields: `tags` (raw genres, for ES filtering) and `titleshot`

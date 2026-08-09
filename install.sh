@@ -68,10 +68,16 @@ if [ -z "$PORTS_DIR" ]; then
 fi
 
 # PortMaster data dir (holds config/images_pm) - where pmscraper.py will live.
+# Same ordered candidate list the game-end hook uses to find pmscraper.py again,
+# and the order PortMaster's own control.txt resolves controlfolder - keep the
+# three in sync so a fresh install lands where the consumers look.
+XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 PM_DIR=""
 for cand in \
+    /opt/system/Tools/PortMaster \
+    /opt/tools/PortMaster \
+    "$XDG_DATA_HOME/PortMaster" \
     /userdata/system/.local/share/PortMaster \
-    "$PORTS_DIR/PortMaster" \
     /roms/ports/PortMaster \
     /storage/roms/ports/PortMaster
 do

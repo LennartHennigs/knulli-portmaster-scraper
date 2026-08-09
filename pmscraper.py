@@ -85,6 +85,11 @@ GENRE_FIXUPS = {
     "visual novel": "Visual Novel",
 }
 
+# The two artwork kinds, mapped to their gamelist media-file suffix. Single
+# source of truth for "which art kinds exist" - iterated by resolve_art and the
+# online download; the gamelist slot each maps to lives in build_fields.
+ART_DEST_SUFFIX = {"screenshot": "image", "cover": "thumb"}
+
 
 def log(msg=""):
     print(msg, flush=True)
@@ -94,6 +99,11 @@ def name_cleaner(text):
     """Mirrors harbourmaster.util.name_cleaner so image lookups line up."""
     temp = re.sub(r"[^a-zA-Z0-9 _\-\.]+", "", text.strip().lower())
     return re.sub(r"[ \.]+", ".", temp)
+
+
+def strip_zip(name):
+    """Drop a trailing .zip from a PortMaster archive name."""
+    return name[:-4] if name.lower().endswith(".zip") else name
 
 
 def tidy_name(stem):
@@ -283,10 +293,7 @@ def resolve_scripts(ports_dir, info):
 
 
 def port_stem(info):
-    name = info.get("name") or ""
-    if name.lower().endswith(".zip"):
-        name = name[:-4]
-    return name_cleaner(name)
+    return name_cleaner(strip_zip(info.get("name") or ""))
 
 
 # --------------------------------------------------------------------------- #
@@ -333,8 +340,7 @@ def download_art(info, kind, dest_dir):
     if not fname:
         return None
 
-    name = info.get("name") or ""
-    portdir = name[:-4] if name.lower().endswith(".zip") else name
+    portdir = strip_zip(info.get("name") or "")
     url = RAW_PORT_URL.format(port=portdir, file=fname)
 
     try:
@@ -353,13 +359,13 @@ def download_art(info, kind, dest_dir):
 # gamelist.xml
 # --------------------------------------------------------------------------- #
 
-def build_fields(info, scripts, script, art, port_dates=False, prefer_covers=False):
+def build_fields(info, scripts, path, art, port_dates=False, prefer_covers=False):
     attr = info.get("attr") or {}
 
     if len(scripts) > 1:
-        name = Path(script).stem
+        name = Path(path).stem
     else:
-        name = attr.get("title") or Path(script).stem
+        name = attr.get("title") or Path(path).stem
 
     fields = {"name": name}
 
@@ -392,8 +398,9 @@ def build_fields(info, scripts, script, art, port_dates=False, prefer_covers=Fal
     rating = info.get("rating") or {}
     avg, mx = rating.get("average_rating"), rating.get("max_rating")
     try:
-        if avg is not None and float(mx or 5) > 0:
-            fields["rating"] = f"{max(0.0, min(1.0, float(avg) / float(mx or 5))):.4f}"
+        denom = float(mx or 5)
+        if avg is not None and denom > 0:
+            fields["rating"] = f"{max(0.0, min(1.0, float(avg) / denom)):.4f}"
     except (TypeError, ValueError):
         pass
 
@@ -469,26 +476,12 @@ def reload_es(timeout=5):
         return False
 
 
-def notify_es(message, timeout=5):
-    """POST /notify - a short on-screen toast on the handheld."""
-    import urllib.request
-    url = f"http://{ES_HOST}:{ES_PORT}/notify"
-    try:
-        req = urllib.request.Request(
-            url, data=message.encode("utf-8"), method="POST",
-            headers={"User-Agent": f"pmscraper/{VERSION}"})
-        urllib.request.urlopen(req, timeout=timeout).read()
-        return True
-    except Exception:
-        return False
-
-
 def restart_es():
-    for cmd in (["batocera-es-swissknife", "--restart"],):
-        if shutil.which(cmd[0]):
-            log(f"running: {' '.join(cmd)}")
-            subprocess.run(cmd, check=False)
-            return True
+    cmd = ["batocera-es-swissknife", "--restart"]
+    if shutil.which(cmd[0]):
+        log(f"running: {' '.join(cmd)}")
+        subprocess.run(cmd, check=False)
+        return True
     log("  ! could not find batocera-es-swissknife to restart ES")
     return False
 
@@ -500,16 +493,16 @@ def restart_es():
 class Entry:
     """One thing ES would show, plus what pmscraper worked out about it."""
 
-    __slots__ = ("path", "nested", "bucket", "info", "scripts", "script",
+    __slots__ = ("path", "nested", "bucket", "info", "scripts",
                  "state", "fields", "note")
 
     def __init__(self, path, nested=False):
-        self.path = path          # normalised, e.g. "Balatro.sh"
+        self.path = path          # normalised, e.g. "Balatro.sh" - also the
+                                  # .sh used for naming + art (one entry = one .sh)
         self.nested = nested
         self.bucket = "unknown"   # port.json | catalog | fuzzy | unknown | stale
         self.info = None          # port.json / catalog dict for the source port
         self.scripts = None       # sibling launchers (multi-launcher naming)
-        self.script = path        # the .sh basename/relpath used for naming + art
         self.state = None         # missing | partial | complete
         self.fields = None        # built gamelist fields
         self.note = ""            # human hint for the report
@@ -531,7 +524,7 @@ def classify(es_entries, installed, catalog, use_fuzzy):
     by_zip = {}
     by_title = {}
     for key, cat in (catalog or {}).items():
-        by_zip[name_cleaner(key[:-4] if key.lower().endswith(".zip") else key)] = cat
+        by_zip[name_cleaner(strip_zip(key))] = cat
         title = (cat.get("attr") or {}).get("title") or ""
         if title:
             by_title.setdefault(name_cleaner(title), cat)
@@ -560,19 +553,16 @@ def classify(es_entries, installed, catalog, use_fuzzy):
     return entries
 
 
-def find_stale(root, ports_dir):
-    """gamelist <game> entries whose file no longer exists on disk.
+def find_stale(by_path, ports_dir):
+    """gamelist entries whose file no longer exists on disk.
 
     Keyed on actual file existence, not our (filtered) ES enumeration: entries
     we deliberately skip enumerating - PortMaster.sh above all - still exist on
     disk and are emphatically not stale, so --prune must never touch them.
+    Reuses the by_path index rather than re-walking <game> nodes.
     """
     stale = []
-    for game in root.findall("game"):
-        node = game.find("path")
-        if node is None:
-            continue
-        key = normalise_path(node.text)
+    for key, game in by_path.items():
         if key and not (ports_dir / key).exists():
             e = Entry(key)
             e.bucket = "stale"
@@ -580,6 +570,33 @@ def find_stale(root, ports_dir):
             e.note = f'"{name}"' if name else ""
             stale.append(e)
     return stale
+
+
+def resolve_art(e, images, media_dir, ports_dir, cfg_dir, apply, online):
+    """Locate an entry's artwork, copy it into media_dir (under --apply), and
+    return {kind: gamelist-relative-path}. The single place that knows how art
+    files are named on disk."""
+    art_src = dict(images.get(port_stem(e.info), {}))
+
+    if online and apply and cfg_dir is not None:
+        for kind in ART_DEST_SUFFIX:
+            if kind not in art_src:
+                got = download_art(e.info, kind, cfg_dir / "images_pm")
+                if got:
+                    art_src[kind] = got
+
+    art = {}
+    for kind, suffix in ART_DEST_SUFFIX.items():
+        src = art_src.get(kind)
+        if src is None:
+            continue
+        dest = media_dir / f"{Path(e.path).stem}-{suffix}{src.suffix.lower()}"
+        if apply:
+            media_dir.mkdir(parents=True, exist_ok=True)
+            if not dest.is_file() or dest.stat().st_size != src.stat().st_size:
+                shutil.copy2(str(src), str(dest))
+        art[kind] = "./" + str(dest.relative_to(ports_dir))
+    return art
 
 
 def completeness(game):
@@ -731,55 +748,29 @@ def main(argv=None):
         if node is not None:
             by_path[normalise_path(node.text)] = game
 
-    stale = find_stale(root, ports_dir)
+    stale = find_stale(by_path, ports_dir)
 
-    # Resolve artwork + fields + completeness for identifiable entries.
+    # Work out completeness and the fields to write for every entry. Skipping
+    # complete entries under --only-missing *before* resolving art avoids the
+    # copy/stat work the auto-run (game-end) hook would otherwise waste.
     for e in entries:
-        game = by_path.get(e.path)
-        e.state = completeness(game)
+        e.state = completeness(by_path.get(e.path))
 
-        if not e.identifiable:
-            continue
-
-        stem = port_stem(e.info)
-        art_src = dict(images.get(stem, {}))
-
-        if args.online and args.apply and cfg_dir is not None:
-            for kind in ("screenshot", "cover"):
-                if kind not in art_src:
-                    got = download_art(e.info, kind, cfg_dir / "images_pm")
-                    if got:
-                        art_src[kind] = got
-
-        art = {}
-        for kind in ("screenshot", "cover"):
-            src = art_src.get(kind)
-            if src is None:
-                continue
-            suffix = "image" if kind == "screenshot" else "thumb"
-            dest = media_dir / f"{Path(e.script).stem}-{suffix}{src.suffix.lower()}"
-            if args.apply:
-                media_dir.mkdir(parents=True, exist_ok=True)
-                if not dest.is_file() or dest.stat().st_size != src.stat().st_size:
-                    shutil.copy2(str(src), str(dest))
-            art[kind] = "./" + str(dest.relative_to(ports_dir))
-
-        e.fields = build_fields(e.info, e.scripts, e.script, art,
-                                args.port_dates, args.prefer_covers)
-
-    # Merge into the gamelist.
-    changed = added = pruned = 0
-
-    for e in entries:
-        writeable = None
         if e.identifiable:
             if args.only_missing and e.state == "complete":
                 continue
-            writeable = e.fields
+            art = resolve_art(e, images, media_dir, ports_dir, cfg_dir,
+                              args.apply, args.online)
+            e.fields = build_fields(e.info, e.scripts, e.path, art,
+                                    args.port_dates, args.prefer_covers)
         elif e.bucket == "unknown" and args.stub_unknown and not e.nested:
-            writeable = {"name": tidy_name(Path(e.path).stem)}
+            e.fields = {"name": tidy_name(Path(e.path).stem)}
 
-        if not writeable:
+    # Merge into the gamelist - uniform: write whatever fields an entry carries.
+    changed = added = pruned = 0
+
+    for e in entries:
+        if not e.fields:
             continue
 
         game = by_path.get(e.path)
@@ -790,18 +781,18 @@ def main(argv=None):
             by_path[e.path] = game
             added += 1
             touched = True
-            log(f"  + {e.path}  ->  {writeable.get('name', '')}")
+            log(f"  + {e.path}  ->  {e.fields.get('name', '')}")
 
         for tag in MANAGED_TAGS:
-            if tag not in writeable:
+            if tag not in e.fields:
                 continue
             node = game.find(tag)
             if node is None:
                 node = ET.SubElement(game, tag)
             elif (node.text or "").strip() and not args.force:
                 continue
-            if (node.text or "") != writeable[tag]:
-                node.text = writeable[tag]
+            if (node.text or "") != e.fields[tag]:
+                node.text = e.fields[tag]
                 touched = True
 
         if touched:
@@ -823,11 +814,11 @@ def main(argv=None):
     if args.report:
         write_report(entries, stale, args.report, args.csv)
 
-    has_unknown = any(e.bucket == "unknown" for e in entries)
+    exit_code = 1 if any(e.bucket == "unknown" for e in entries) else 0
 
     if not args.apply:
         log("dry run - nothing was written. Re-run with --apply.")
-        return 1 if has_unknown else 0
+        return exit_code
 
     if added or changed or pruned:
         had_gamelist = gamelist.is_file()
@@ -842,7 +833,7 @@ def main(argv=None):
     else:
         log("nothing changed; gamelist left as-is")
 
-    return 1 if has_unknown else 0
+    return exit_code
 
 
 if __name__ == "__main__":
