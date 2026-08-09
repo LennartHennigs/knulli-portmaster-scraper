@@ -209,6 +209,24 @@ class PMScraperTests(unittest.TestCase):
         # --no-fuzzy demotes it back to unknown
         self.assertIn("unknown    1", run(t, "--online", "--no-fuzzy").stdout)
 
+    def test_string_image_does_not_crash_online(self):
+        # descent/descent2 store attr.image as a bare string, not a dict; with a
+        # local screenshot but no cover, --online calls download_art for the
+        # cover, which must not choke on the string.
+        t = self.tree
+        t.add_sh("Descent.sh")
+        d = t.ports / "descent"
+        d.mkdir()
+        info = port_json("Descent", "Descent.sh")
+        info["attr"]["image"] = "descent.screenshot.png"   # string, not dict
+        (d / "port.json").write_text(json.dumps(info))
+        t.add_art("descent", screenshot=True, cover=False)
+        t.seed_catalog({})
+        run(t, "--apply", "--online", expect=0)             # must not crash
+        g = t.games()["./Descent.sh"]
+        self.assertEqual(g.findtext("name"), "Descent")
+        self.assertTrue(g.findtext("image").endswith("Descent-image.png"))
+
     # --- classification (PLAN verification 2) ---------------------------- #
 
     def test_unknown_untouched_and_exit_1(self):

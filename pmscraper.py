@@ -331,7 +331,13 @@ def load_online_catalog(cache_file):
 
 def download_art(info, kind, dest_dir):
     """Grab screenshot/cover straight from the PortMaster repo."""
-    img = (info.get("attr") or {}).get("image") or {}
+    img = (info.get("attr") or {}).get("image")
+    # attr.image is usually a {screenshot, covers} dict, but some ports (descent,
+    # descent2) store it as a bare screenshot filename string. Normalise both.
+    if isinstance(img, str):
+        img = {"screenshot": img}
+    elif not isinstance(img, dict):
+        img = {}
     if kind == "screenshot":
         fname = img.get("screenshot")
     else:
