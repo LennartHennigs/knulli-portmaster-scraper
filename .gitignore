@@ -1,0 +1,8 @@
+# local test scaffolding
+fake/
+*.pyc
+__pycache__/
+pmscraper_ports.json
+*.bak
+*.broken
+.DS_Store
