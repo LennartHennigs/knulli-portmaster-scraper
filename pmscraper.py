@@ -38,7 +38,7 @@ import xml.etree.ElementTree as ET
 
 from pathlib import Path
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 PORTS_JSON_URL = "https://github.com/PortsMaster/PortMaster-New/releases/latest/download/ports.json"
 RAW_PORT_URL = "https://raw.githubusercontent.com/PortsMaster/PortMaster-New/main/ports/{port}/{file}"
@@ -525,9 +525,10 @@ def merge_fields(root, by_path, path, fields, force=False):
     return touched
 
 
-def register_tools(ports_dir, gamelist, reload_when_done=True):
+def register_tools(ports_dir, gamelist, apply, reload_when_done=True):
     """Give the tool launchers (PortMaster, PortMaster Scraper) tidy gamelist
-    entries. Only registers launchers that actually exist on disk."""
+    entries. Only registers launchers that exist on disk. Like the scrape, this
+    only writes with --apply; without it, it just reports what it would add."""
     root = load_gamelist(gamelist)
     by_path = {normalise_path(g.findtext("path")): g
                for g in root.findall("game") if g.find("path") is not None}
@@ -536,14 +537,16 @@ def register_tools(ports_dir, gamelist, reload_when_done=True):
         if not (ports_dir / launcher).is_file():
             continue
         if merge_fields(root, by_path, launcher, fields):
-            log(f"registered '{fields['name']}'")
+            log(f"{'registered' if apply else 'would register'} '{fields['name']}'")
             changed = True
-    if changed:
+    if not changed:
+        log("tool launchers already registered")
+    elif apply:
         write_gamelist(root, gamelist)
         if reload_when_done:
             reload_es()
     else:
-        log("tool launchers already registered")
+        log("dry run - nothing written. Re-run with --apply.")
     return 0
 
 
@@ -578,17 +581,13 @@ def notify_es(message, timeout=2):
         return False
 
 
-def progress_bar(done, total, width=10):
-    filled = int(round(width * done / total)) if total else width
-    return "[" + "#" * filled + "-" * (width - filled) + "]"
-
-
 def emit_progress(done, total, name, args):
-    """Report scraping progress. --progress toasts ES (foreground only);
-    --emit-progress prints a machine line to stdout for the pugwash launcher to
-    turn into an on-screen progress bar. Both are best-effort."""
+    """Report scraping progress. --progress toasts ES (foreground only) with just
+    'name [m/n]' - no ASCII bar, which renders badly in a popup; --emit-progress
+    prints a machine line to stdout for the pugwash launcher to turn into an
+    on-screen progress bar. Both are best-effort."""
     if getattr(args, "progress", False):
-        notify_es(f"{name} [{done}/{total}] {progress_bar(done, total)}")
+        notify_es(f"{name} [{done}/{total}]")
     if getattr(args, "emit_progress", False):
         # Tab-separated; name is last and never contains a tab. Real stdout.
         sys.stdout.write(f"PMPROG\t{done}\t{total}\t{name}\n")
@@ -866,7 +865,8 @@ def main(argv=None):
 
     if args.register_tools:
         # Standalone: register the tool launchers and stop (no scrape).
-        return register_tools(ports_dir, gamelist, reload_when_done=not args.no_reload)
+        return register_tools(ports_dir, gamelist, args.apply,
+                              reload_when_done=not args.no_reload)
 
     log(f"pmscraper {VERSION}")
     log(f"  ports dir : {ports_dir}")
@@ -928,36 +928,19 @@ def main(argv=None):
             e.fields = {"name": tidy_name(Path(e.path).stem)}
 
     # Merge into the gamelist - uniform: write whatever fields an entry carries.
+    # Shares merge_fields() with --register-tools so the non-destructive per-tag
+    # rule lives in one place.
     changed = added = pruned = 0
 
     for e in entries:
         if not e.fields:
             continue
-
-        game = by_path.get(e.path)
-        touched = False
-        if game is None:
-            game = ET.SubElement(root, "game")
-            ET.SubElement(game, "path").text = "./" + e.path
-            by_path[e.path] = game
-            added += 1
-            touched = True
-            log(f"  + {e.path}  ->  {e.fields.get('name', '')}")
-
-        for tag in MANAGED_TAGS:
-            if tag not in e.fields:
-                continue
-            node = game.find(tag)
-            if node is None:
-                node = ET.SubElement(game, tag)
-            elif (node.text or "").strip() and not args.force:
-                continue
-            if (node.text or "") != e.fields[tag]:
-                node.text = e.fields[tag]
-                touched = True
-
-        if touched:
+        is_new = e.path not in by_path
+        if merge_fields(root, by_path, e.path, e.fields, force=args.force):
             changed += 1
+            if is_new:
+                added += 1
+                log(f"  + {e.path}  ->  {e.fields.get('name', '')}")
 
     if args.prune:
         for e in stale:
@@ -998,4 +981,13 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Exit codes: 0 = clean, 1 = ok but some launchers were unidentified,
+    # 2 = an unexpected error (so callers can tell a crash from "unknowns").
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        sys.exit(2)

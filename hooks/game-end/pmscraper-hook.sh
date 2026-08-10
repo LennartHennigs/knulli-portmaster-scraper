@@ -31,18 +31,21 @@ done
 [ -n "$PMSCRAPER" ] || exit 0
 
 LOG=/tmp/pmscraper-hook.log
+REPORT=/tmp/pmscraper-hook-report.md   # separate file - --report would truncate $LOG
 
 # Scrape only ports installed during this PortMaster session (port.json newer
 # than the launch time the game-start hook recorded) - not a full rescan. If the
 # timestamp is missing for any reason, fall back to --only-missing. --progress
 # toasts each port (ES is foreground here, so it shows); pmscraper reloads ES
 # when anything changed.
+# Widen the window by 2s so a port installed in the same second as launch, or on
+# a coarse-mtime filesystem (exFAT rounds to 2s), still counts as "new".
 if [ -n "$SINCE" ]; then
-    SELECT="--since $SINCE"
+    SELECT="--since $((SINCE - 2))"
 else
     SELECT="--only-missing"
 fi
-python3 "$PMSCRAPER" --apply $SELECT --progress --report "$LOG" >>"$LOG" 2>&1
+python3 "$PMSCRAPER" --apply $SELECT --progress --report "$REPORT" >"$LOG" 2>&1
 
 # Final summary toast (best-effort; some builds lack /notify).
 SUMMARY=$(grep -E '^(scraped|unknown)' "$LOG" | tr '\n' ' ')

@@ -82,7 +82,9 @@ and prints a full report. Only `--apply` ever writes.
 | `--apply` | actually write (default is a dry run) |
 | `--online` | fetch `ports.json` + missing artwork from GitHub |
 | `--force` | overwrite values already in the gamelist |
-| `--only-missing` | only touch entries that are missing/partial (the auto-run's fast path) |
+| `--only-missing` | only touch entries that are missing/partial |
+| `--since EPOCH` | only scrape ports whose `port.json` is newer (the auto-run's "new ports only") |
+| `--register-tools` | give PortMaster + the Scraper tidy Ports-menu entries (needs `--apply`) |
 | `--prefer-covers` | use cover art as `<image>` (for themes without `<thumbnail>`) |
 | `--stub-unknown` | give non-PortMaster `.sh` a tidied `<name>` and nothing else |
 | `--prune` | remove gamelist entries whose `.sh` is gone |

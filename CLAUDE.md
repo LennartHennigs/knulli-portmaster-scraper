@@ -61,11 +61,24 @@ user's actual SD card (mounted at `/Volumes/ROMs`, **ext4**) and KNULLI source:
   Ports menu (ES is backgrounded then). There is **no progress-bar endpoint**
   (that widget is ES's internal `GuiScraperRun`); `--progress` fakes it with
   per-port toast text. All best-effort.
-- **Network:** the `images_pm` cache holds **screenshots only (0 covers)**, so
-  `--online` is required to fetch cover/box art from the PortMaster repo. The
-  Ports launcher uses `--online` (degrades cleanly with no WiFi → `Temporary
-  failure in name resolution`); the auto-run hook stays offline (`--only-missing`,
-  no network). The ES-launched port context has WiFi only when the device does.
+- **On-screen output during a launched port = pugwash** (PortMaster's pygame GUI;
+  runtime repo `PortsMaster/PortMaster-GUI`). Drive it via `PortMasterDialog.txt`:
+  `PortMasterDialogInit "no-harbour"` → `PortMasterDialog "progress" msg done total`
+  / `"message"` (escaped `\n` → newline) / `progress_clear` → `PortMasterDialogExit`.
+  ONLY way to draw during a Ports-menu run (ES backgrounded → toasts don't render).
+  The launcher feeds it `--emit-progress` PMPROG lines.
+- **Restart/reload ES:** `restart_es()` uses `knulli-es-swissknife` (NOT
+  `batocera-es-swissknife`), falling back to `GET /quit` (KNULLI's boot loop
+  relaunches ES). HTTP `GET /restart` REBOOTS THE DEVICE — don't use it.
+  `/reloadgames` from a launched port (ES backgrounded) won't repaint until ES is
+  foreground → tell the user to run **Update Gamelists** (or reboot).
+- **Network / covers:** `images_pm` holds **screenshots only (0 covers)**;
+  PortMaster has covers for ~52% of ports (712/1348) upstream, so `--online` is
+  required for box art. `<image>`=screenshot, `<thumbnail>`("Box")=cover — keep
+  strict, NEVER a screenshot in the box slot (user correction). Launcher uses
+  `--online` (degrades cleanly offline → `Temporary failure in name resolution`);
+  auto-run hook stays offline. On macOS, `--online` needs
+  `SSL_CERT_FILE=/etc/ssl/cert.pem`; the device's own certs work.
 - **gamelist entries carry `id` attributes and pre-existing metadata** from ES's
   own ScreenScraper runs — the merge MUST stay non-destructive (see below).
 
@@ -81,6 +94,12 @@ exclude top-level `PortMaster.sh`) → `classify` into buckets → resolve art +
 `--online`) / `fuzzy` (stem matches upstream *title*) / `unknown` / `stale`.
 **Completeness:** `missing` / `partial` (has entry, no `image` or no `desc`) /
 `complete`. Exit code `1` when any `unknown` exists.
+
+**Selectors/actions:** `--since EPOCH` = only ports whose `port.json` is newer
+(auto-run's "new ports only"; game-start records `date +%s`, game-end passes it);
+`--emit-progress` = PMPROG lines on stdout + log→stderr, for the pugwash launcher;
+`--register-tools` = tidy gamelist entries for PortMaster + Scraper (`TOOL_ENTRIES`,
+non-destructive, present-launchers-only). Ports launcher = full scan; hooks = new-only.
 
 ### Invariants — do not break
 
@@ -117,7 +136,7 @@ The card is ext4 (Paragon `UFSD_EXTFS4`), so `chmod 755` sticks. Logs land at
 
 ## Testing / verification
 
-- `python3 -m unittest discover -s tests` — 19 tests, a throwaway synthetic
+- `python3 -m unittest discover -s tests` — 23 tests, a throwaway synthetic
   KNULLI tree, no network, no device. Covers apply/dry-run/idempotence/force/
   online(via seeded cache)/malformed and every bucket + completeness path.
 - `python3 -m py_compile pmscraper.py`; run once under `python3 -W error`.

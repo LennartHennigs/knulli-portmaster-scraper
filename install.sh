@@ -181,9 +181,9 @@ done
 # --------------------------------------------------------------------------- #
 step "Register tool launchers in the gamelist"
 if [ "$DRY" = 1 ]; then
-    say "  would: python3 \"$DEST_PY\" --ports-dir \"$PORTS_DIR\" --register-tools --no-reload"
+    say "  would: python3 \"$DEST_PY\" --ports-dir \"$PORTS_DIR\" --apply --register-tools --no-reload"
 else
-    python3 "$DEST_PY" --ports-dir "$PORTS_DIR" --register-tools --no-reload || true
+    python3 "$DEST_PY" --ports-dir "$PORTS_DIR" --apply --register-tools --no-reload || true
 fi
 
 # --------------------------------------------------------------------------- #

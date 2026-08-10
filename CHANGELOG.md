@@ -1,5 +1,45 @@
 # Changelog
 
+## v1.2.0
+
+On-device polish: graphical progress, smarter auto-run, and release hardening.
+
+### Added
+- **On-screen progress bar.** The Ports-menu launcher drives PortMaster's own
+  GUI (`pugwash`) over its dialog FIFO to show a native `name [x/y]` progress
+  bar - the only way to draw during a launched port (ES is backgrounded, so
+  `/notify` toasts don't render). `pmscraper --emit-progress` streams
+  machine-readable `PMPROG` lines on stdout (human log → stderr) to drive it.
+- **`--progress`** posts a per-port `name [m/n]` ES toast (no ASCII bar - it
+  renders badly in a popup); visible only while ES is foreground (auto-run hook,
+  SSH). Progress is reported during the download phase, where `--online` spends
+  its time.
+- **`--since EPOCH`** scrapes only ports whose `port.json` is newer - the
+  auto-run's "new ports only" path. `game-start` records the launch time,
+  `game-end` passes it (with a 2s guard for coarse-mtime/exFAT). The Ports-menu
+  launcher stays a full scan.
+- **`--register-tools`** gives the tool launchers (PortMaster + the Scraper)
+  tidy gamelist entries (name/desc/genre=Utility/publisher) instead of bare
+  filenames; non-destructive, present-launchers-only, run by `install.sh`.
+- The Ports launcher now runs `--online` (cover/box art is not in the on-card
+  cache) and degrades cleanly offline.
+- Exit code **2** now signals an unexpected error, distinct from `1`
+  (unidentified launchers present) - so callers can tell a crash from "unknowns".
+
+### Fixed
+- `download_art` crashed on ports whose `attr.image` is a bare string, not a
+  `{screenshot, covers}` dict (e.g. `descent`, `descent2`), aborting `--apply`
+  before writing anything.
+- `restart_es()` used the wrong binary for KNULLI - it ships
+  `knulli-es-swissknife`, not `batocera-es-swissknife`; falls back to `GET /quit`.
+- Skip the scraper's own launcher (`PortMaster Scraper.sh`) in enumeration so it
+  no longer reports itself as `unknown`.
+- game-end hook: `--report` no longer shares a file with the stdout log (it was
+  truncating it, so the summary toast never fired).
+- Ports launcher: run `pm_finish` on the "pmscraper not found" path (was leaving
+  gptokeyb running), and surface pmscraper's real exit status via `PIPESTATUS`.
+- `--register-tools` now honours dry-run-by-default (only writes with `--apply`).
+
 ## v1.1.0
 
 Coverage, reporting, auto-run, and the on-device install.

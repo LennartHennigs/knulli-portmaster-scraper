@@ -35,7 +35,10 @@ toast() {   # ES on-screen notifier (best-effort; only shows once ES is foregrou
 }
 
 if [ ! -f "$PMSCRAPER" ]; then
+    # control.txt is already sourced (get_controls ran gptokeyb), so hand back
+    # to ES cleanly with pm_finish before bailing.
     toast "pmscraper.py not found - re-run install.sh"
+    pm_finish
     exit 1
 fi
 $ESUDO chmod +x "$PMSCRAPER" 2>/dev/null || true
@@ -57,15 +60,21 @@ while IFS="$(printf '\t')" read -r tag done total name; do
     [ "$tag" = "PMPROG" ] || continue
     PortMasterDialog "progress" "$name  [$done/$total]" "$done" "$total"
 done
+RC=${PIPESTATUS[0]}   # pmscraper's exit, not the while loop's
 
 PortMasterDialog "progress_clear"
 
-# Summarise from the log (human output went to stderr -> $LOG).
-WRITTEN=$(grep -oE '[0-9]+ written' "$LOG" | head -1 | grep -oE '^[0-9]+')
-UNKNOWN=$(grep -oE '^unknown +[0-9]+' "$LOG" | head -1 | grep -oE '[0-9]+')
-PortMasterDialog "message" "Done: ${WRITTEN:-0} updated, ${UNKNOWN:-0} unidentified."
-PortMasterDialog "message" "Reloading gamelist..."
-sleep 2
+if [ "$RC" -ge 2 ]; then
+    # 0 = ok, 1 = ok but some launchers unidentified, >=2 = a real error.
+    PortMasterDialog "message" "Scrape failed (exit $RC) - see $LOG"
+    sleep 3
+else
+    # Summarise from the log (human output went to stderr -> $LOG).
+    WRITTEN=$(grep -oE '[0-9]+ written' "$LOG" | head -1 | grep -oE '^[0-9]+')
+    UNKNOWN=$(grep -oE '^unknown +[0-9]+' "$LOG" | head -1 | grep -oE '[0-9]+')
+    PortMasterDialog "message" "Done: ${WRITTEN:-0} updated, ${UNKNOWN:-0} unidentified."
+    sleep 2
+fi
 PortMasterDialog "messages_end"
 
 # trap runs PortMasterDialogExit + pm_finish on exit.
