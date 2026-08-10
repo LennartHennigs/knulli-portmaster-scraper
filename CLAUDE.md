@@ -53,9 +53,17 @@ user's actual SD card (mounted at `/Volumes/ROMs`, **ext4**) and KNULLI source:
 - **Real port launchers** are `#!/bin/bash`, source `$controlfolder/control.txt`,
   and end with `pm_finish`. `control.txt` sets `CUR_TTY=/dev/tty0`. The Ports
   launcher here follows that skeleton so output is visible and env is correct.
-- **ES HTTP API** on `127.0.0.1:1234`: `GET /reloadgames` re-reads gamelists
-  from disk (avoids ES clobbering our file at its own exit); `POST /notify`
-  toasts. Both best-effort.
+- **ES HTTP API** on `127.0.0.1:1234` (source: `es-app/src/services/HttpServerThread.cpp`;
+  `isAllowed` → localhost only unless `PublicWebAccess`): `GET /reloadgames`
+  re-reads gamelists from disk (avoids ES clobbering our file at its own exit);
+  `POST /notify` = a text popup (`displayNotificationMessage`). **`/notify`
+  renders only while ES is foreground** — NOT during a port launched from the
+  Ports menu (ES is backgrounded then). There is **no progress-bar endpoint**
+  (that widget is ES's internal `GuiScraperRun`); `--progress` fakes it with
+  per-port toast text. All best-effort.
+- **On-device is usually offline** (no WiFi → `Temporary failure in name
+  resolution`). `--online` needs WiFi; the `images_pm` cache already has the
+  art, so the Ports launcher and auto-run run **offline by default**.
 - **gamelist entries carry `id` attributes and pre-existing metadata** from ES's
   own ScreenScraper runs — the merge MUST stay non-destructive (see below).
 
@@ -82,6 +90,12 @@ exclude top-level `PortMaster.sh`) → `classify` into buckets → resolve art +
   disk and is legitimately in the gamelist — `find_stale` keys on
   `(ports_dir/path).exists()` so `--prune` never deletes it. Regression fixed
   once; keep it.)
+- **`attr.image` may be a bare string**, not a `{screenshot, covers}` dict
+  (e.g. `descent`, `descent2`). `download_art` normalizes it; never call
+  `.get()` on it unguarded (it crashed the whole `--apply` run once).
+- **`SKIP_LAUNCHERS`** excludes our own `PortMaster Scraper.sh` (a tool, not a
+  game) from enumeration alongside `PortMaster.sh` — else the tool reports
+  itself as `unknown` and forces exit 1 on every auto-run.
 - **`name_cleaner` must mirror** `harbourmaster.util.name_cleaner` or artwork
   lookups misalign.
 - **stdlib `xml.etree` is intentional** (KNULLI ships no `defusedxml`; we only
@@ -90,9 +104,18 @@ exclude top-level `PortMaster.sh`) → `classify` into buckets → resolve art +
   dependency to satisfy it.
 - Back up to `.bak`, write via temp + `os.replace`; malformed input → `.broken`.
 
+## Installing from a Mac card reader
+
+`install.sh` is device-only (absolute `/userdata/...` paths). To install onto a
+mounted card, copy to card-relative paths under the mount (`/Volumes/ROMs` =
+`/userdata`): `system/.local/share/PortMaster/pmscraper/`, `roms/ports/` (the
+launcher), `system/configs/emulationstation/scripts/{game-start,game-end}/`.
+The card is ext4 (Paragon `UFSD_EXTFS4`), so `chmod 755` sticks. Logs land at
+`…/PortMaster/pmscraper.log` + `pmscraper-report.md`.
+
 ## Testing / verification
 
-- `python3 -m unittest discover -s tests` — 17 tests, a throwaway synthetic
+- `python3 -m unittest discover -s tests` — 19 tests, a throwaway synthetic
   KNULLI tree, no network, no device. Covers apply/dry-run/idempotence/force/
   online(via seeded cache)/malformed and every bucket + completeness path.
 - `python3 -m py_compile pmscraper.py`; run once under `python3 -W error`.
@@ -100,6 +123,9 @@ exclude top-level `PortMaster.sh`) → `classify` into buckets → resolve art +
   substitution) so check it with `bash -n`, not `sh -n`.
 - Against a real card: **read-only dry run first** —
   `python3 pmscraper.py --ports-dir /Volumes/<card>/roms/ports`.
+- Verify a refactor is **behavior-neutral** against the card: `git stash`, run
+  the dry-run, compare output byte-for-byte. `cmp -s <repo> <card>` confirms
+  installed files match.
 
 ## Gotchas
 

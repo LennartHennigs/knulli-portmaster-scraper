@@ -47,16 +47,18 @@ fi
 
 $ESUDO chmod +x "$PMSCRAPER" 2>/dev/null || true
 
-# Offline by default: everything installed via PortMaster has its metadata and
-# (via the images_pm cache) its artwork on the card already, so no network is
-# needed - which matters because handhelds are often offline. pmscraper reloads
-# ES itself when it changes anything. For the online top-up (hand-installed
-# ports, uncached covers) run it over SSH with --online while on WiFi.
+# --online so cover/box art (which the local images_pm cache usually lacks) is
+# pulled from the PortMaster repo when WiFi is up. It degrades gracefully with no
+# network - screenshots + metadata still come from the on-card cache offline.
+# pmscraper reloads ES itself when it changes anything.
 echo "Scraping installed ports..."
-python3 "$PMSCRAPER" --apply --report "$REPORT"
+python3 "$PMSCRAPER" --apply --online --report "$REPORT"
 
-# Toast the summary so there's feedback on the handheld even with no console.
-SUMMARY=$(grep -E '^(scraped|unknown|stale)' "$LOG" | tr '\n' ' ')
-toast "pmscraper: ${SUMMARY:-see $LOG}"
+# One concise toast: how many entries changed + how many unidentified. Launched
+# from the Ports menu ES is backgrounded, so its live gamelist reload may not
+# repaint until you leave the menu - hence the reminder.
+WRITTEN=$(grep -oE '[0-9]+ written' "$LOG" | head -1 | grep -oE '^[0-9]+')
+UNKNOWN=$(grep -oE '^unknown +[0-9]+' "$LOG" | head -1 | grep -oE '[0-9]+')
+toast "PM Scraper: ${WRITTEN:-0} updated, ${UNKNOWN:-0} unidentified"
 
 pm_finish

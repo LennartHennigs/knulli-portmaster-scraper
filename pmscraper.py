@@ -414,9 +414,9 @@ def build_fields(info, scripts, path, art, port_dates=False, prefer_covers=False
 
     shot = art.get("screenshot")
     cover = art.get("cover")
-    # ES stores <image> and <thumbnail> ("Box") as independent slots; fill both,
-    # plus <titleshot> as a screenshot alias. --prefer-covers swaps the first two
-    # for themes that only render <image>.
+    # Keep the slots true to their meaning: <image> = screenshot, <thumbnail>
+    # ("Box") = cover art only - never a screenshot in the box slot. --prefer-covers
+    # swaps them for themes that render <image> as the primary art.
     primary, secondary = (cover, shot) if prefer_covers else (shot, cover)
     if primary:
         fields["image"] = primary
@@ -504,13 +504,24 @@ def progress_bar(done, total, width=10):
 
 
 def restart_es():
-    cmd = ["batocera-es-swissknife", "--restart"]
-    if shutil.which(cmd[0]):
-        log(f"running: {' '.join(cmd)}")
-        subprocess.run(cmd, check=False)
+    """Restart EmulationStation so it reloads gamelists from disk. Needed when
+    the lightweight /reloadgames won't repaint - e.g. run as a Ports-menu launch
+    with ES backgrounded. KNULLI ships knulli-es-swissknife; the universal
+    fallback is GET /quit (KNULLI's boot loop relaunches ES)."""
+    for cmd in (["knulli-es-swissknife", "--restart"],
+                ["batocera-es-swissknife", "--restart"]):
+        if shutil.which(cmd[0]):
+            log(f"running: {' '.join(cmd)}")
+            subprocess.run(cmd, check=False)
+            return True
+    # No swissknife: ask ES to quit; the init loop brings it back up.
+    try:
+        fetch(f"http://{ES_HOST}:{ES_PORT}/quit", timeout=5)
+        log("asked ES to quit (it restarts and reloads from disk)")
         return True
-    log("  ! could not find batocera-es-swissknife to restart ES")
-    return False
+    except Exception as err:
+        log(f"  ! could not restart ES ({err})")
+        return False
 
 
 # --------------------------------------------------------------------------- #
