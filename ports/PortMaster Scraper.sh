@@ -48,7 +48,7 @@ PortMasterDialogInit "no-harbour"
 trap 'PortMasterDialogExit; pm_finish' EXIT
 
 PortMasterDialog "messages_begin"
-PortMasterDialog "message" "PortMaster Scraper - scanning installed ports..."
+PortMasterDialog "message" "PortMaster Scraper\nscanning installed ports..."
 
 # --emit-progress: PMPROG lines on stdout (one per port), human log on stderr.
 # Drive the pugwash progress bar from each PMPROG line; log the rest.
