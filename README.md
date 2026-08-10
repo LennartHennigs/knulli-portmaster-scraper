@@ -1,7 +1,8 @@
 # knulli-portmaster-scraper
 
-Give your PortMaster ports proper artwork, descriptions and genres in KNULLI's
-(and Batocera's) Ports menu — without scraping anything from the internet.
+Give your PortMaster ports proper titles, descriptions, genres and artwork in
+KNULLI's (and Batocera's) Ports menu — from the data PortMaster already put on
+the card.
 
 ## The problem
 
@@ -11,9 +12,10 @@ scrapers can't fix it (they look games up by name/hash, and a port's `.sh`
 matches nothing). But PortMaster already *has* all that information on your SD
 card. So this tool takes it from there and fills it in.
 
-It looks up each installed game's info from PortMaster (its `port.json` and
-artwork cache) and writes it into `/userdata/roms/ports/gamelist.xml`. Nothing
-is scraped from the internet. Stdlib-only Python 3.7+, one file, no dependencies.
+It reads each installed game's info from PortMaster — its `port.json` and
+artwork cache — and writes it into `/userdata/roms/ports/gamelist.xml`. No
+scraper service, and no internet unless you opt into `--online` for cover art
+PortMaster hasn't cached. Stdlib-only Python 3.7+, one file, no dependencies.
 
 ## Details
 
@@ -70,12 +72,12 @@ chmod 755 /userdata/system/configs/emulationstation/scripts/game-start/pmscraper
 
 Two ways, both installed by `install.sh`:
 
-1. **Automatically** — a `game-end` hook fires when you exit PortMaster and
-   scrapes just the ports you installed that session (nothing else). This is the
-   everyday path; you never have to think about it.
-2. **By hand** — the **PortMaster Scraper** entry in the Ports menu does a full
+1. **By hand** — the **PortMaster Scraper** entry in the Ports menu does a full
    rescan of every installed port, with an on-screen progress bar. Use it for a
    first run, after a big cleanup, or to fetch cover art over WiFi (`--online`).
+2. **Automatically** — a `game-end` hook fires when you exit PortMaster and
+   scrapes just the ports you installed that session (nothing else). This is the
+   everyday path; you never have to think about it.
 
 You can also run `pmscraper.py` directly over SSH or from a card reader:
 

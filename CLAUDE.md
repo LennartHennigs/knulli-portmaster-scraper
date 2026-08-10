@@ -7,9 +7,10 @@ Guidance for working in this repo. Read alongside `README.md` (user-facing) and
 
 A single-file, stdlib-only Python tool (`pmscraper.py`) that gives PortMaster
 ports proper artwork/descriptions/genres in KNULLI's (Batocera-fork) Ports menu.
-It does **not** scrape the internet: PortMaster already wrote every port's
+It does **not** query a scraper service: PortMaster already wrote every port's
 metadata (`port.json`) and downloaded its artwork (`images_pm/`) onto the SD
-card. The tool *transcribes* that into `/userdata/roms/ports/gamelist.xml`.
+card. The tool *transcribes* that into `/userdata/roms/ports/gamelist.xml`. It
+works fully offline; `--online` only tops up covers from PortMaster's repo.
 
 Root cause it solves: PortMaster's own KNULLI gamelist writer only fires for
 ports shipping a `gameinfo.xml`, and **0 of ~1386 ports ship one**.
@@ -85,8 +86,9 @@ user's actual SD card (mounted at `/Volumes/ROMs`, **ext4**) and KNULLI source:
 ## Architecture (pmscraper.py)
 
 Flow in `main()`: discover dirs → `index_images` → `scan_installed_ports` →
-`enumerate_es_entries` (walk like ES: `.sh`/`.squashfs`, skip dot-entries,
-exclude top-level `PortMaster.sh`) → `classify` into buckets → resolve art +
+`enumerate_es_entries` (walk like ES: `.sh`/`.squashfs`, skip dot-entries and
+the top-level tool launchers in `SKIP_LAUNCHERS`) → `classify` into buckets →
+resolve art +
 `build_fields` + `completeness` → merge → `print_summary`/`write_report` →
 `reload_es`.
 
@@ -116,9 +118,11 @@ hooks = new-only. **Exit codes:** 0 ok, 1 unknowns present, 2 crash/setup error.
 - **`attr.image` may be a bare string**, not a `{screenshot, covers}` dict
   (e.g. `descent`, `descent2`). `download_art` normalizes it; never call
   `.get()` on it unguarded (it crashed the whole `--apply` run once).
-- **`SKIP_LAUNCHERS`** excludes our own `PortMaster Scraper.sh` (a tool, not a
-  game) from enumeration alongside `PortMaster.sh` — else the tool reports
-  itself as `unknown` and forces exit 1 on every auto-run.
+- **`SKIP_LAUNCHERS = frozenset(TOOL_ENTRIES)`** — the tool launchers
+  (`PortMaster.sh`, `PortMaster Scraper.sh`) are skipped in enumeration; else the
+  scraper reports *itself* as `unknown` and forces exit 1 on every auto-run.
+  Add a tool launcher to `TOOL_ENTRIES` and it's skipped + registered from that
+  one place.
 - **`name_cleaner` must mirror** `harbourmaster.util.name_cleaner` or artwork
   lookups misalign.
 - **stdlib `xml.etree` is intentional** (KNULLI ships no `defusedxml`; we only

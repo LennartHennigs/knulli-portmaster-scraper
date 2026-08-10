@@ -10,7 +10,7 @@ On-device polish: graphical progress, smarter auto-run, and release hardening.
   bar - the only way to draw during a launched port (ES is backgrounded, so
   `/notify` toasts don't render). `pmscraper --emit-progress` streams
   machine-readable `PMPROG` lines on stdout (human log → stderr) to drive it.
-- **`--progress`** posts a per-port `name [m/n]` ES toast (no ASCII bar - it
+- **`--progress`** now posts just `name [m/n]` (the ASCII bar was dropped - it
   renders badly in a popup); visible only while ES is foreground (auto-run hook,
   SSH). Progress is reported during the download phase, where `--online` spends
   its time.
