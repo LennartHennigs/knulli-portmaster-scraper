@@ -279,10 +279,13 @@ class PMScraperTests(unittest.TestCase):
         t.add_port("Oldgame", "Old.sh")
         t.add_port("Newgame", "New.sh")
         os.utime(t.ports / "oldgame" / "port.json", (1000, 1000))  # far in the past
-        run(t, "--apply", "--since", "100000", expect=0)
+        proc = run(t, "--apply", "--since", "100000", expect=0)
         games = t.games()
         self.assertNotIn("./Old.sh", games)   # old port skipped
         self.assertIn("./New.sh", games)      # only the new one scraped
+        # the summary must count only what was resolved, not every eligible port
+        self.assertIn("1 from port.json", proc.stdout)
+        self.assertNotIn("2 from port.json", proc.stdout)
 
     def test_emit_progress_splits_stdout_and_stderr(self):
         # --emit-progress: machine PMPROG lines on stdout, human log on stderr.

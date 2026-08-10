@@ -29,6 +29,11 @@ On-device polish: graphical progress, smarter auto-run, release hardening.
 - Ports launcher: `pm_finish` on the not-found path; real exit status via
   `PIPESTATUS`.
 - `--register-tools` honours dry-run-by-default.
+- Summary counts only what a run actually resolved — `--since`/`--only-missing`
+  runs no longer over-report "scraped".
+- Enumeration prunes the `PortMaster/` dir (ArkOS/JELOS layouts) so its internal
+  `.sh` don't show as `unknown`.
+- game-end hook falls back to `--only-missing` if the marker isn't a number.
 
 ## v1.1.0
 

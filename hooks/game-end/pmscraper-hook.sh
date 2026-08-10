@@ -39,12 +39,12 @@ REPORT=/tmp/pmscraper-hook-report.md   # separate file - --report would truncate
 # toasts each port (ES is foreground here, so it shows); pmscraper reloads ES
 # when anything changed.
 # Widen the window by 2s so a port installed in the same second as launch, or on
-# a coarse-mtime filesystem (exFAT rounds to 2s), still counts as "new".
-if [ -n "$SINCE" ]; then
-    SELECT="--since $((SINCE - 2))"
-else
-    SELECT="--only-missing"
-fi
+# a coarse-mtime filesystem (exFAT rounds to 2s), still counts as "new". Fall
+# back to --only-missing if the marker is missing or somehow not a plain number.
+case "$SINCE" in
+    ''|*[!0-9]*) SELECT="--only-missing" ;;
+    *)           SELECT="--since $((SINCE - 2))" ;;
+esac
 python3 "$PMSCRAPER" --apply $SELECT --progress --report "$REPORT" >"$LOG" 2>&1
 
 # Final summary toast (best-effort; some builds lack /notify).

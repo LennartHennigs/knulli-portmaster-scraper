@@ -130,6 +130,11 @@ hooks = new-only. **Exit codes:** 0 ok, 1 unknowns present, 2 crash/setup error.
   it's a documented, accepted trade-off (see the import comment). Don't add a
   dependency to satisfy it.
 - Back up to `.bak`, write via temp + `os.replace`; malformed input → `.broken`.
+- **`index_by_path` assumes unique `<path>`.** It's a dict, so duplicate `<game>`
+  entries with the same path collapse to the last one — the earlier duplicate is
+  then invisible to scrape/`find_stale`/`--prune` (never updated or removed).
+  Duplicates shouldn't occur (ES writes one entry per path); low-severity, but
+  don't build logic that relies on seeing every node for a path.
 
 ## Installing from a Mac card reader
 

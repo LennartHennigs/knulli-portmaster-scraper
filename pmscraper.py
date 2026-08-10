@@ -241,8 +241,10 @@ def enumerate_es_entries(ports_dir):
     entries = {}
     for dirpath, dirnames, filenames in os.walk(ports_dir):
         rel_dir = Path(dirpath).relative_to(ports_dir)
-        # Prune hidden dirs and PortMaster's own tooling/config trees.
-        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        # Prune hidden dirs and PortMaster's own tooling tree (on ArkOS/JELOS-style
+        # layouts PortMaster lives under roms/ports; its internal .sh aren't games).
+        dirnames[:] = [d for d in dirnames
+                       if not d.startswith(".") and d != "PortMaster"]
         depth = 0 if rel_dir == Path(".") else len(rel_dir.parts)
         for fn in filenames:
             if fn.startswith("."):
@@ -784,9 +786,12 @@ def print_summary(entries, stale):
     for e in entries:
         if not e.identifiable:
             continue
+        # "scraped" = resolved this run (e.fields set); "skipped" = already
+        # complete. An eligible port that --since/--only-missing filtered out is
+        # neither (e.fields is None and it isn't complete) - it wasn't touched.
         if e.state == "complete":
             skipped += 1
-        else:
+        elif e.fields:
             scraped += 1
             src[e.bucket] += 1
 
