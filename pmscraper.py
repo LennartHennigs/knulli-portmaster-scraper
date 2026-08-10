@@ -127,6 +127,13 @@ def log(msg=""):
     print(msg, file=_LOG_STREAM, flush=True)
 
 
+def die(msg):
+    """Setup/config error → exit 2 (distinct from 1 = 'unknowns present') so the
+    launcher can tell a misconfiguration from a normal run."""
+    print(msg, file=sys.stderr, flush=True)
+    sys.exit(2)
+
+
 def name_cleaner(text):
     """Mirrors harbourmaster.util.name_cleaner so image lookups line up."""
     temp = re.sub(r"[^a-zA-Z0-9 _\-\.]+", "", text.strip().lower())
@@ -152,7 +159,7 @@ def find_ports_dir(override=None):
     if override:
         p = Path(override)
         if not p.is_dir():
-            sys.exit(f"error: --ports-dir {p} is not a directory")
+            die(f"error: --ports-dir {p} is not a directory")
         return p
 
     env = os.environ.get("HM_PORTS_DIR")
@@ -164,7 +171,7 @@ def find_ports_dir(override=None):
         if p.is_dir():
             return p
 
-    sys.exit("error: could not find a ports directory; pass --ports-dir")
+    die("error: could not find a ports directory; pass --ports-dir")
 
 
 def find_cfg_dir(ports_dir, override=None):
@@ -550,6 +557,29 @@ def register_tools(ports_dir, gamelist, apply, reload_when_done=True):
     return 0
 
 
+def unregister_self(gamelist, apply, reload_when_done=True):
+    """Remove the scraper's own gamelist entry (used by install.sh --uninstall).
+    Leaves PortMaster's entry alone - PortMaster stays installed."""
+    root = load_gamelist(gamelist)
+    removed = False
+    for game in list(root.findall("game")):
+        node = game.find("path")
+        if node is not None and normalise_path(node.text) == SCRAPER_LAUNCHER:
+            if apply:
+                root.remove(game)
+            removed = True
+    if not removed:
+        log("no PortMaster Scraper entry to remove")
+    elif apply:
+        write_gamelist(root, gamelist)
+        log("removed the PortMaster Scraper gamelist entry")
+        if reload_when_done:
+            reload_es()
+    else:
+        log("would remove the PortMaster Scraper gamelist entry")
+    return 0
+
+
 # --------------------------------------------------------------------------- #
 # EmulationStation control
 # --------------------------------------------------------------------------- #
@@ -850,6 +880,9 @@ def main(argv=None):
                     help="just add gamelist entries for the tool launchers "
                          "(PortMaster, PortMaster Scraper); used by install.sh, "
                          "then exit")
+    ap.add_argument("--unregister-self", action="store_true",
+                    help="remove the scraper's own gamelist entry (used by "
+                         "install.sh --uninstall), then exit")
     ap.add_argument("--version", action="version", version=VERSION)
     args = ap.parse_args(argv)
 
@@ -867,6 +900,10 @@ def main(argv=None):
         # Standalone: register the tool launchers and stop (no scrape).
         return register_tools(ports_dir, gamelist, args.apply,
                               reload_when_done=not args.no_reload)
+
+    if args.unregister_self:
+        return unregister_self(gamelist, args.apply,
+                               reload_when_done=not args.no_reload)
 
     log(f"pmscraper {VERSION}")
     log(f"  ports dir : {ports_dir}")

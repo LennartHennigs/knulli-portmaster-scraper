@@ -99,7 +99,9 @@ exclude top-level `PortMaster.sh`) → `classify` into buckets → resolve art +
 (auto-run's "new ports only"; game-start records `date +%s`, game-end passes it);
 `--emit-progress` = PMPROG lines on stdout + log→stderr, for the pugwash launcher;
 `--register-tools` = tidy gamelist entries for PortMaster + Scraper (`TOOL_ENTRIES`,
-non-destructive, present-launchers-only). Ports launcher = full scan; hooks = new-only.
+non-destructive, present-launchers-only, needs `--apply`); `--unregister-self` =
+drop the scraper's own entry (install.sh --uninstall). Ports launcher = full scan;
+hooks = new-only. **Exit codes:** 0 ok, 1 unknowns present, 2 crash/setup error.
 
 ### Invariants — do not break
 
@@ -136,7 +138,7 @@ The card is ext4 (Paragon `UFSD_EXTFS4`), so `chmod 755` sticks. Logs land at
 
 ## Testing / verification
 
-- `python3 -m unittest discover -s tests` — 23 tests, a throwaway synthetic
+- `python3 -m unittest discover -s tests` — 26 tests, a throwaway synthetic
   KNULLI tree, no network, no device. Covers apply/dry-run/idempotence/force/
   online(via seeded cache)/malformed and every bucket + completeness path.
 - `python3 -m py_compile pmscraper.py`; run once under `python3 -W error`.

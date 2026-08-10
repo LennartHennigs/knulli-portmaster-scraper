@@ -56,9 +56,9 @@ PortMasterDialog "message" "PortMaster Scraper\nscanning installed ports..."
 # --emit-progress: PMPROG lines on stdout (one per port), human log on stderr.
 # Drive the pugwash progress bar from each PMPROG line; log the rest.
 python3 "$PMSCRAPER" --apply --online --emit-progress --report "$REPORT" 2>>"$LOG" |
-while IFS="$(printf '\t')" read -r tag done total name; do
+while IFS="$(printf '\t')" read -r tag idx total name; do
     [ "$tag" = "PMPROG" ] || continue
-    PortMasterDialog "progress" "$name  [$done/$total]" "$done" "$total"
+    PortMasterDialog "progress" "$name  [$idx/$total]" "$idx" "$total"
 done
 RC=${PIPESTATUS[0]}   # pmscraper's exit, not the while loop's
 

@@ -23,8 +23,11 @@ On-device polish: graphical progress, smarter auto-run, and release hardening.
   filenames; non-destructive, present-launchers-only, run by `install.sh`.
 - The Ports launcher now runs `--online` (cover/box art is not in the on-card
   cache) and degrades cleanly offline.
-- Exit code **2** now signals an unexpected error, distinct from `1`
-  (unidentified launchers present) - so callers can tell a crash from "unknowns".
+- Exit code **2** now signals an unexpected error or a setup/config error
+  (bad `--ports-dir`, ports dir not found), distinct from `1` (unidentified
+  launchers present) - so callers can tell a failure from "unknowns".
+- `install.sh --uninstall` now removes the scraper's own gamelist entry
+  (`--unregister-self`); PortMaster's entry and the gamelist are left intact.
 
 ### Fixed
 - `download_art` crashed on ports whose `attr.image` is a bare string, not a

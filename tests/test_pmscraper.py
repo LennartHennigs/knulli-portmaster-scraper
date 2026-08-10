@@ -348,6 +348,29 @@ class PMScraperTests(unittest.TestCase):
         self.assertNotIn("./PortMaster.sh", t.games())
         self.assertIn("./PortMaster Scraper.sh", t.games())
 
+    def test_unregister_self_removes_only_scraper_entry(self):
+        t = self.tree
+        t.write_gamelist(
+            "<?xml version='1.0'?><gameList>"
+            "<game><path>./PortMaster.sh</path><name>PortMaster</name></game>"
+            "<game><path>./PortMaster Scraper.sh</path><name>PortMaster Scraper</name></game>"
+            "<game><path>./Balatro.sh</path><name>Balatro</name></game>"
+            "</gameList>")
+        run(t, "--apply", "--unregister-self")
+        games = t.games()
+        self.assertNotIn("./PortMaster Scraper.sh", games)   # removed
+        self.assertIn("./PortMaster.sh", games)              # kept
+        self.assertIn("./Balatro.sh", games)                 # kept
+
+    def test_unregister_self_dry_run_keeps_entry(self):
+        t = self.tree
+        t.write_gamelist(
+            "<?xml version='1.0'?><gameList><game>"
+            "<path>./PortMaster Scraper.sh</path><name>X</name></game></gameList>")
+        proc = run(t, "--unregister-self")   # no --apply
+        self.assertIn("would remove", proc.stdout)
+        self.assertIn("./PortMaster Scraper.sh", t.games())
+
     def test_register_tools_dry_run_writes_nothing(self):
         t = self.tree
         t.add_sh("PortMaster.sh")

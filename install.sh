@@ -115,14 +115,22 @@ fi
 # --------------------------------------------------------------------------- #
 if [ "$UNINSTALL" = 1 ]; then
     step "Uninstall"
+    # Remove the scraper's own gamelist entry first - it needs pmscraper.py,
+    # which we delete just below. PortMaster's entry and the rest are left.
+    if [ "$DRY" = 1 ]; then
+        say "  would: python3 \"$DEST_PY\" --ports-dir \"$PORTS_DIR\" --apply --unregister-self --no-reload"
+    elif [ -f "$DEST_PY" ]; then
+        python3 "$DEST_PY" --ports-dir "$PORTS_DIR" --apply --unregister-self --no-reload || true
+    fi
     for f in "$DEST_PY" "$DEST_LAUNCH" "$DEST_TRIGGER" "$DEST_HOOK"; do
         if [ -e "$f" ]; then run "rm -f \"$f\""; say "  removed $f"
         else say "  (absent) $f"; fi
     done
-    # Drop the now-empty pmscraper/ dir, but leave gamelist/images/.bak alone.
+    # Drop the now-empty pmscraper/ dir, but leave the rest alone.
     run "rmdir \"$PM_DIR/pmscraper\" 2>/dev/null || true"
     say ""
-    say "Done. gamelist.xml, images/ and .bak were left untouched."
+    say "Done. Removed the PortMaster Scraper entry; PortMaster's entry,"
+    say "gamelist.xml, images/ and .bak were left untouched."
     exit 0
 fi
 
