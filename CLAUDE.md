@@ -61,9 +61,11 @@ user's actual SD card (mounted at `/Volumes/ROMs`, **ext4**) and KNULLI source:
   Ports menu (ES is backgrounded then). There is **no progress-bar endpoint**
   (that widget is ES's internal `GuiScraperRun`); `--progress` fakes it with
   per-port toast text. All best-effort.
-- **On-device is usually offline** (no WiFi → `Temporary failure in name
-  resolution`). `--online` needs WiFi; the `images_pm` cache already has the
-  art, so the Ports launcher and auto-run run **offline by default**.
+- **Network:** the `images_pm` cache holds **screenshots only (0 covers)**, so
+  `--online` is required to fetch cover/box art from the PortMaster repo. The
+  Ports launcher uses `--online` (degrades cleanly with no WiFi → `Temporary
+  failure in name resolution`); the auto-run hook stays offline (`--only-missing`,
+  no network). The ES-launched port context has WiFi only when the device does.
 - **gamelist entries carry `id` attributes and pre-existing metadata** from ES's
   own ScreenScraper runs — the merge MUST stay non-destructive (see below).
 
