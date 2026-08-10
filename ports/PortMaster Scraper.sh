@@ -1,10 +1,13 @@
 #!/bin/bash
 # PortMaster Scraper - launchable from the KNULLI / Batocera Ports menu.
 #
-# Transcribes PortMaster's own metadata + artwork into the ports gamelist, then
-# reloads EmulationStation so the menu refreshes in place. Uses the standard
-# PortMaster port skeleton so it runs in the right environment on every CFW.
-# Installed by install.sh into <roms>/ports/ so ES lists it.
+# Scrapes the WHOLE ports folder (every installed port) and writes metadata +
+# artwork into the gamelist. Shows a native on-screen progress bar by driving
+# PortMaster's own GUI (pugwash) over its dialog FIFO - the same UI PortMaster
+# uses when it installs a port. Installed by install.sh into <roms>/ports/.
+#
+# (The auto-run game-end hook is the "new ports only" path; this entry is the
+# full rescan you run by hand.)
 
 XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 
@@ -25,40 +28,44 @@ get_controls
 PMSCRAPER="$controlfolder/pmscraper/pmscraper.py"
 LOG="$controlfolder/pmscraper.log"
 REPORT="$controlfolder/pmscraper-report.md"
-
-# Log to a file, and best-effort to the console (some devices show the port's
-# tty, most don't - we rely on the /notify toast below for on-screen feedback).
 : > "$LOG"
-if [ -n "${CUR_TTY:-}" ] && [ -w "${CUR_TTY:-/dev/null}" ]; then
-    exec > >(tee "$LOG" "$CUR_TTY") 2>&1
-else
-    exec > "$LOG" 2>&1
-fi
 
-toast() {   # POST a short message to the ES on-screen notifier (best-effort)
+toast() {   # ES on-screen notifier (best-effort; only shows once ES is foreground)
     curl -s -m 3 -X POST --data "$1" "http://127.0.0.1:1234/notify" >/dev/null 2>&1 || true
 }
 
 if [ ! -f "$PMSCRAPER" ]; then
     toast "pmscraper.py not found - re-run install.sh"
-    pm_finish
     exit 1
 fi
-
 $ESUDO chmod +x "$PMSCRAPER" 2>/dev/null || true
 
-# --online so cover/box art (which the local images_pm cache usually lacks) is
-# pulled from the PortMaster repo when WiFi is up. It degrades gracefully with no
-# network - screenshots + metadata still come from the on-card cache offline.
-# pmscraper reloads ES itself when it changes anything.
-echo "Scraping installed ports..."
-python3 "$PMSCRAPER" --apply --online --report "$REPORT"
+# --- graphical progress via PortMaster's pugwash GUI ----------------------- #
+# PortMasterDialogInit starts pugwash in fifo_control mode; PortMasterDialog
+# sends it commands (message / progress / progress_clear). Always tear it down.
+source "$controlfolder/PortMasterDialog.txt"
+PortMasterDialogInit "no-harbour"
+trap 'PortMasterDialogExit; pm_finish' EXIT
 
-# One concise toast: how many entries changed + how many unidentified. Launched
-# from the Ports menu ES is backgrounded, so its live gamelist reload may not
-# repaint until you leave the menu - hence the reminder.
+PortMasterDialog "messages_begin"
+PortMasterDialog "message" "PortMaster Scraper - scanning installed ports..."
+
+# --emit-progress: PMPROG lines on stdout (one per port), human log on stderr.
+# Drive the pugwash progress bar from each PMPROG line; log the rest.
+python3 "$PMSCRAPER" --apply --online --emit-progress --report "$REPORT" 2>>"$LOG" |
+while IFS="$(printf '\t')" read -r tag done total name; do
+    [ "$tag" = "PMPROG" ] || continue
+    PortMasterDialog "progress" "$name  [$done/$total]" "$done" "$total"
+done
+
+PortMasterDialog "progress_clear"
+
+# Summarise from the log (human output went to stderr -> $LOG).
 WRITTEN=$(grep -oE '[0-9]+ written' "$LOG" | head -1 | grep -oE '^[0-9]+')
 UNKNOWN=$(grep -oE '^unknown +[0-9]+' "$LOG" | head -1 | grep -oE '[0-9]+')
-toast "PM Scraper: ${WRITTEN:-0} updated, ${UNKNOWN:-0} unidentified"
+PortMasterDialog "message" "Done: ${WRITTEN:-0} updated, ${UNKNOWN:-0} unidentified."
+PortMasterDialog "message" "Reloading gamelist..."
+sleep 2
+PortMasterDialog "messages_end"
 
-pm_finish
+# trap runs PortMasterDialogExit + pm_finish on exit.

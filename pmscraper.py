@@ -92,8 +92,13 @@ GENRE_FIXUPS = {
 ART_DEST_SUFFIX = {"screenshot": "image", "cover": "thumb"}
 
 
+# Where human-readable log lines go. --emit-progress reroutes them to stderr so
+# stdout carries only machine-readable PMPROG lines for the pugwash launcher.
+_LOG_STREAM = sys.stdout
+
+
 def log(msg=""):
-    print(msg, flush=True)
+    print(msg, file=_LOG_STREAM, flush=True)
 
 
 def name_cleaner(text):
@@ -264,7 +269,11 @@ def scan_installed_ports(ports_dir):
             # like librespot, or a data-only pack). Nothing for ES to show.
             continue
 
-        ports.append((info, scripts))
+        try:
+            mtime = pf.stat().st_mtime   # when PortMaster last wrote this port
+        except OSError:
+            mtime = 0.0
+        ports.append((info, scripts, mtime))
 
     return ports
 
@@ -503,6 +512,18 @@ def progress_bar(done, total, width=10):
     return "[" + "#" * filled + "-" * (width - filled) + "]"
 
 
+def emit_progress(done, total, name, args):
+    """Report scraping progress. --progress toasts ES (foreground only);
+    --emit-progress prints a machine line to stdout for the pugwash launcher to
+    turn into an on-screen progress bar. Both are best-effort."""
+    if getattr(args, "progress", False):
+        notify_es(f"{name} [{done}/{total}] {progress_bar(done, total)}")
+    if getattr(args, "emit_progress", False):
+        # Tab-separated; name is last and never contains a tab. Real stdout.
+        sys.stdout.write(f"PMPROG\t{done}\t{total}\t{name}\n")
+        sys.stdout.flush()
+
+
 def restart_es():
     """Restart EmulationStation so it reloads gamelists from disk. Needed when
     the lightweight /reloadgames won't repaint - e.g. run as a Ports-menu launch
@@ -531,7 +552,7 @@ def restart_es():
 class Entry:
     """One thing ES would show, plus what pmscraper worked out about it."""
 
-    __slots__ = ("path", "nested", "bucket", "info", "scripts",
+    __slots__ = ("path", "nested", "bucket", "info", "scripts", "mtime",
                  "state", "fields", "note")
 
     def __init__(self, path, nested=False):
@@ -541,6 +562,7 @@ class Entry:
         self.bucket = "unknown"   # port.json | catalog | fuzzy | unknown | stale
         self.info = None          # port.json / catalog dict for the source port
         self.scripts = None       # sibling launchers (multi-launcher naming)
+        self.mtime = 0.0          # port.json mtime (0 for catalog/fuzzy) - --since
         self.state = None         # missing | partial | complete
         self.fields = None        # built gamelist fields
         self.note = ""            # human hint for the report
@@ -552,11 +574,11 @@ class Entry:
 
 def classify(es_entries, installed, catalog, use_fuzzy):
     """Turn the raw ES entry set into classified Entry objects."""
-    # script basename -> (info, scripts)
+    # script basename -> (info, scripts, mtime)
     by_script = {}
-    for info, scripts in installed:
+    for info, scripts, mtime in installed:
         for s in scripts:
-            by_script[normalise_path(s)] = (info, scripts)
+            by_script[normalise_path(s)] = (info, scripts, mtime)
 
     # catalog lookup tables
     by_zip = {}
@@ -574,7 +596,7 @@ def classify(es_entries, installed, catalog, use_fuzzy):
 
         if path in by_script:
             e.bucket = "port.json"
-            e.info, e.scripts = by_script[path]
+            e.info, e.scripts, e.mtime = by_script[path]
         elif not nested and stem in by_zip:
             e.bucket = "catalog"
             e.info, e.scripts = by_zip[stem], [path]
@@ -731,6 +753,9 @@ def main(argv=None):
                     help="use the port's release date as <releasedate>")
     ap.add_argument("--only-missing", action="store_true",
                     help="only write entries that are missing or partial")
+    ap.add_argument("--since", type=float, metavar="EPOCH",
+                    help="only scrape ports whose port.json was written at/after "
+                         "this Unix time (the auto-run hook's 'new ports only')")
     ap.add_argument("--stub-unknown", action="store_true",
                     help="write a tidied <name> for unknown (non-PortMaster) .sh")
     ap.add_argument("--prune", action="store_true",
@@ -744,12 +769,20 @@ def main(argv=None):
     ap.add_argument("--progress", action="store_true",
                     help="post a per-port ES toast 'name [x/y]' while scraping "
                          "(only visible while ES is in the foreground)")
+    ap.add_argument("--emit-progress", action="store_true",
+                    help="print machine-readable 'PMPROG' progress lines to "
+                         "stdout (log goes to stderr) for the pugwash launcher")
     ap.add_argument("--no-reload", action="store_true",
                     help="do not call ES /reloadgames after --apply")
     ap.add_argument("--restart-es", action="store_true",
                     help="restart EmulationStation when done (instead of reload)")
     ap.add_argument("--version", action="version", version=VERSION)
     args = ap.parse_args(argv)
+
+    if args.emit_progress:
+        # Keep stdout clean for PMPROG lines; human log goes to stderr.
+        global _LOG_STREAM
+        _LOG_STREAM = sys.stderr
 
     ports_dir = find_ports_dir(args.ports_dir)
     cfg_dir = find_cfg_dir(ports_dir, args.cfg_dir)
@@ -762,7 +795,8 @@ def main(argv=None):
     log(f"  gamelist  : {gamelist}")
     log(f"  mode      : {'APPLY' if args.apply else 'dry run'}"
         f"{' +online' if args.online else ''}{' +force' if args.force else ''}"
-        f"{' +only-missing' if args.only_missing else ''}")
+        f"{' +only-missing' if args.only_missing else ''}"
+        f"{' +since' if args.since is not None else ''}")
     log()
 
     images = index_images(cfg_dir)
@@ -791,39 +825,35 @@ def main(argv=None):
 
     stale = find_stale(by_path, ports_dir)
 
-    # Work out completeness and the fields to write for every entry. Skipping
-    # complete entries under --only-missing *before* resolving art avoids the
-    # copy/stat work the auto-run (game-end) hook would otherwise waste.
     for e in entries:
         e.state = completeness(by_path.get(e.path))
 
-        if e.identifiable:
-            if args.only_missing and e.state == "complete":
-                continue
-            art = resolve_art(e, images, media_dir, ports_dir, cfg_dir,
-                              args.apply, args.online)
-            e.fields = build_fields(e.info, e.scripts, e.path, art,
-                                    args.port_dates, args.prefer_covers)
-        elif e.bucket == "unknown" and args.stub_unknown and not e.nested:
+    # Resolve art + fields. This is where --online spends its time (downloads),
+    # so progress is reported here. Skipping complete entries under
+    # --only-missing *before* resolving avoids copy/stat work we'd throw away.
+    to_resolve = [e for e in entries if e.identifiable
+                  and not (args.only_missing and e.state == "complete")
+                  and not (args.since is not None and e.mtime < args.since)]
+    total = len(to_resolve)
+    for i, e in enumerate(to_resolve, 1):
+        name = (e.info.get("attr") or {}).get("title") or Path(e.path).stem
+        emit_progress(i, total, name, args)
+        art = resolve_art(e, images, media_dir, ports_dir, cfg_dir,
+                          args.apply, args.online)
+        e.fields = build_fields(e.info, e.scripts, e.path, art,
+                                args.port_dates, args.prefer_covers)
+
+    for e in entries:
+        if (e.bucket == "unknown" and args.stub_unknown and not e.nested
+                and not e.fields):
             e.fields = {"name": tidy_name(Path(e.path).stem)}
 
     # Merge into the gamelist - uniform: write whatever fields an entry carries.
     changed = added = pruned = 0
 
-    # Per-port progress toasts (opt-in): count the identified ports we'll write,
-    # so the counter denominator matches what actually scrolls by.
-    show_progress = args.progress and args.apply
-    to_scrape = sum(1 for e in entries if e.identifiable and e.fields)
-    done = 0
-
     for e in entries:
         if not e.fields:
             continue
-
-        if show_progress and e.identifiable:
-            done += 1
-            notify_es(f"{e.fields['name']} [{done}/{to_scrape}] "
-                      f"{progress_bar(done, to_scrape)}")
 
         game = by_path.get(e.path)
         touched = False

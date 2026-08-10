@@ -272,6 +272,29 @@ class PMScraperTests(unittest.TestCase):
         run(t, "--apply", "--prune", expect=0)
         self.assertNotIn("./Gone.sh", t.games())         # pruned now
 
+    def test_since_scrapes_only_new_ports(self):
+        # The auto-run hook's "new ports only": --since EPOCH restricts to ports
+        # whose port.json was written at/after EPOCH.
+        t = self.tree
+        t.add_port("Oldgame", "Old.sh")
+        t.add_port("Newgame", "New.sh")
+        os.utime(t.ports / "oldgame" / "port.json", (1000, 1000))  # far in the past
+        run(t, "--apply", "--since", "100000", expect=0)
+        games = t.games()
+        self.assertNotIn("./Old.sh", games)   # old port skipped
+        self.assertIn("./New.sh", games)      # only the new one scraped
+
+    def test_emit_progress_splits_stdout_and_stderr(self):
+        # --emit-progress: machine PMPROG lines on stdout, human log on stderr.
+        t = self.tree
+        t.add_port("Balatro", "Balatro.sh")
+        t.add_art("balatro")
+        proc = run(t, "--apply", "--emit-progress", expect=0)
+        self.assertIn("PMPROG\t1\t1\tBalatro", proc.stdout)
+        self.assertNotIn("PMPROG", proc.stderr)
+        self.assertIn("pmscraper", proc.stderr)   # header went to stderr
+        self.assertNotIn("ports dir", proc.stdout)  # stdout stays clean
+
     def test_only_missing_skips_complete(self):
         t = self.tree
         t.add_port("Balatro", "Balatro.sh")

@@ -11,6 +11,7 @@
 
 MARKER=/tmp/pmscraper.trigger
 [ -f "$MARKER" ] || exit 0
+SINCE=$(cat "$MARKER" 2>/dev/null)
 rm -f "$MARKER"
 
 # Locate pmscraper.py (install.sh puts it beside PortMaster's own files). Same
@@ -31,10 +32,17 @@ done
 
 LOG=/tmp/pmscraper-hook.log
 
-# --only-missing keeps the auto-run fast: it fills just the ports the fresh
-# install added. --progress shows a per-port toast (ES is in the foreground
-# here, so it's visible). pmscraper calls ES /reloadgames when anything changed.
-python3 "$PMSCRAPER" --apply --only-missing --progress --report "$LOG" >>"$LOG" 2>&1
+# Scrape only ports installed during this PortMaster session (port.json newer
+# than the launch time the game-start hook recorded) - not a full rescan. If the
+# timestamp is missing for any reason, fall back to --only-missing. --progress
+# toasts each port (ES is foreground here, so it shows); pmscraper reloads ES
+# when anything changed.
+if [ -n "$SINCE" ]; then
+    SELECT="--since $SINCE"
+else
+    SELECT="--only-missing"
+fi
+python3 "$PMSCRAPER" --apply $SELECT --progress --report "$LOG" >>"$LOG" 2>&1
 
 # Final summary toast (best-effort; some builds lack /notify).
 SUMMARY=$(grep -E '^(scraped|unknown)' "$LOG" | tr '\n' ' ')

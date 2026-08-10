@@ -14,9 +14,11 @@
 # Installed by install.sh to:
 #   <ES configs>/scripts/game-start/pmscraper-trigger.sh
 
+# Record the launch time; the game-end hook scrapes only ports whose port.json
+# was written after this (i.e. installed during this PortMaster session).
 case "$2" in
     PortMaster|PortMaster.sh)
-        : > /tmp/pmscraper.trigger
+        date +%s > /tmp/pmscraper.trigger
         ;;
 esac
 exit 0
