@@ -5,15 +5,17 @@ Give your PortMaster ports proper artwork, descriptions and genres in KNULLI's
 
 ## The problem
 
-PortMaster ports show up as bare `.sh` filenames: no art, no description. The
-usual scrapers can't help — they index by game name/hash, and `Sonic 3 AIR.sh`
-matches nothing. But the metadata is already **on your SD card**: PortMaster
-writes a `port.json` per port and caches every port's artwork. This tool just
-*transcribes* that into `/userdata/roms/ports/gamelist.xml`.
+Games installed through PortMaster arrive with no metadata — in the Ports menu
+they're bare `.sh` filenames with no title, description or artwork. Ordinary
+scrapers can't fix it (they look games up by name/hash, and a port's `.sh`
+matches nothing). But PortMaster already *has* all that information on your SD
+card. So this tool takes it from there and fills it in.
 
-Stdlib-only Python 3.7+, one file. No dependencies, no API keys.
+It looks up each installed game's info from PortMaster (its `port.json` and
+artwork cache) and writes it into `/userdata/roms/ports/gamelist.xml`. Nothing
+is scraped from the internet. Stdlib-only Python 3.7+, one file, no dependencies.
 
-## What it does
+## Details
 
 - Writes `name`, `desc`, `genre`, `tags`, `developer`, `publisher`, `rating`,
   `image`, `thumbnail`, `titleshot` from `port.json` + the `images_pm/` cache.
