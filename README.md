@@ -39,13 +39,16 @@ filesystem, and verifies against your real ports), so you install over SSH.
 1. **Enable SSH** on the handheld — KNULLI: *Main Menu → Network Settings →
    Enable SSH*. Note the device's IP; the default login is `root` / `linux`.
 2. **Copy this folder to the device** — either over SSH from your computer:
+
    ```sh
    scp -r knulli-portmaster-scraper root@<device-ip>:/userdata/
    ```
+
    …or with a card reader: drop the folder anywhere on the SD card *except*
    `roms/ports/` (so ES doesn't list its `.sh` files), then reinsert it.
-3. **Run the installer** over SSH:
-   ```sh
+3. **Run the installer** over SSH:5.
+
+  ```sh
    ssh root@<device-ip>
    cd /userdata/knulli-portmaster-scraper   # wherever you put it
    ./install.sh
