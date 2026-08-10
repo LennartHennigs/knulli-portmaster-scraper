@@ -16,6 +16,9 @@ On-device polish: graphical progress, smarter auto-run, release hardening.
 - Exit code **2** for errors (crash or bad config), distinct from `1`
   (unidentified `.sh` present).
 - `install.sh --uninstall` removes the scraper's own gamelist entry.
+- **No-SSH install** — `make-release.sh` builds a self-extracting
+  `Install PortMaster Scraper.sh`; drop it in `roms/ports/`, run it from the Ports
+  menu, and it installs everything on-device and removes itself.
 
 ### Changed / Fixed
 - `--progress` toast dropped the ASCII bar (renders badly in a popup).

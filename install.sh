@@ -6,10 +6,11 @@
 #   ./install.sh --uninstall  remove the three installed files
 #   ./install.sh --ports-dir /path/to/roms/ports   override detection
 #
-# It installs three files:
-#   pmscraper.py          -> <PortMaster>/pmscraper/pmscraper.py   (survives updates)
-#   PortMaster Scraper.sh -> <roms>/ports/                         (Ports-menu entry)
-#   pmscraper-hook.sh     -> <ES configs>/scripts/game-end/        (auto-run)
+# It installs four files:
+#   pmscraper.py             -> <PortMaster>/pmscraper/pmscraper.py  (survives updates)
+#   PortMaster Scraper.sh    -> <roms>/ports/                        (Ports-menu entry)
+#   pmscraper-trigger.sh     -> <ES configs>/scripts/game-start/     (auto-run marker)
+#   pmscraper-hook.sh        -> <ES configs>/scripts/game-end/       (auto-run)
 #
 # gamelist.xml, the images/ folder and any .bak are never touched.
 

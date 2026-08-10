@@ -33,43 +33,47 @@ PortMaster hasn't cached. Stdlib-only Python 3.7+, one file, no dependencies.
 
 ## Install
 
-`install.sh` runs **on the device** (it writes to `/userdata/...`, detects the
-filesystem, and verifies against your real ports), so you install over SSH.
+**No SSH, no computer terminal** — one file, run from the Ports menu:
 
-1. **Enable SSH** on the handheld — KNULLI: *Main Menu → Network Settings →
-   Enable SSH*. Note the device's IP; the default login is `root` / `linux`.
-2. **Copy this folder to the device** — either over SSH from your computer:
+1. Download `knulli-portmaster-scraper-vX.Y.Z.zip` from the
+   [Releases](../../releases) page and unzip it.
+2. Copy the single **`Install PortMaster Scraper.sh`** onto your SD card's
+   `roms/ports/` folder — via a card reader, or over KNULLI's network share
+   (`\\<device-ip>\share` → `roms/ports`).
+3. On the handheld: **Ports → Install PortMaster Scraper**. It installs
+   everything and restarts EmulationStation, then removes itself.
 
-   ```sh
-   scp -r knulli-portmaster-scraper root@<device-ip>:/userdata/
-   ```
-
-   …or with a card reader: drop the folder anywhere on the SD card *except*
-   `roms/ports/` (so ES doesn't list its `.sh` files), then reinsert it.
-3. **Run the installer** over SSH:5.
-
-  ```sh
-   ssh root@<device-ip>
-   cd /userdata/knulli-portmaster-scraper   # wherever you put it
-   ./install.sh
-   ```
-
-It locates your ports + PortMaster dirs, installs four files (the tool, the
-Ports-menu launcher, and a `game-start`/`game-end` hook pair), registers the
-tool entries, and ends with a dry run proving it can see your ports. Re-run any
-time to upgrade. `./install.sh --uninstall` removes everything (including the
-scraper's own gamelist entry); `./install.sh --dry-run` shows the plan only.
+Done — a **PortMaster Scraper** entry appears in the Ports menu, and new ports
+are scraped automatically when you exit PortMaster. Run the installer again any
+time to upgrade.
 
 > **exFAT/NTFS:** the auto-run hooks need the Unix exec bit, which exFAT/NTFS
 > can't provide, so ES won't run them there (KNULLI's ext4 SD is fine). The
-> **PortMaster Scraper** Ports-menu entry always works — run it by hand.
+> **PortMaster Scraper** menu entry always works — run it by hand.
 
-If the auto-run doesn't fire on ext4, make sure the hooks are executable (SSH):
+<details>
+<summary><b>Advanced: install / uninstall over SSH</b></summary>
+
+Instead of the packaged installer, run `install.sh` from the repo on the device:
+
+```sh
+scp -r knulli-portmaster-scraper root@<device-ip>:/userdata/   # SSH must be on
+ssh root@<device-ip>
+cd /userdata/knulli-portmaster-scraper
+./install.sh              # detect dirs, install 4 files, register, verify
+./install.sh --uninstall  # remove them + the scraper's gamelist entry
+./install.sh --dry-run    # show the plan only
+```
+
+If the auto-run doesn't fire on ext4, make sure the hooks are executable:
 
 ```sh
 chmod 755 /userdata/system/configs/emulationstation/scripts/game-start/pmscraper-trigger.sh \
           /userdata/system/configs/emulationstation/scripts/game-end/pmscraper-hook.sh
 ```
+
+Build the release artifact yourself with `./make-release.sh` (writes to `build/`).
+</details>
 
 ## How it runs
 

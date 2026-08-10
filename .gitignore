@@ -6,3 +6,7 @@ pmscraper_ports.json
 *.bak
 *.broken
 .DS_Store
+
+# release build artifacts (make-release.sh)
+build/
+/Install PortMaster Scraper.sh
