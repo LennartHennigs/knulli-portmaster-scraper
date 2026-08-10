@@ -176,7 +176,18 @@ for f in "$DEST_PY" "$DEST_LAUNCH" "$DEST_TRIGGER" "$DEST_HOOK"; do
 done
 
 # --------------------------------------------------------------------------- #
-# 5. Verify - a real dry run proves it can see your ports
+# 5. Register the tool launchers so PortMaster + the Scraper read as real
+#    entries in the Ports menu, not bare filenames.
+# --------------------------------------------------------------------------- #
+step "Register tool launchers in the gamelist"
+if [ "$DRY" = 1 ]; then
+    say "  would: python3 \"$DEST_PY\" --ports-dir \"$PORTS_DIR\" --register-tools --no-reload"
+else
+    python3 "$DEST_PY" --ports-dir "$PORTS_DIR" --register-tools --no-reload || true
+fi
+
+# --------------------------------------------------------------------------- #
+# 6. Verify - a real dry run proves it can see your ports
 # --------------------------------------------------------------------------- #
 step "Verify (dry run)"
 if [ "$DRY" = 1 ]; then

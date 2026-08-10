@@ -72,9 +72,35 @@ MANAGED_TAGS = (
     "developer", "publisher", "releasedate", "rating",
 )
 
+# Our own Ports-menu launcher. Skipped from normal scraping (it's a tool, not a
+# game), but --register-self gives it a tidy gamelist entry of its own.
+SCRAPER_LAUNCHER = "PortMaster Scraper.sh"
+
 # Top-level launchers that are tools, not scrapeable games - always skipped so
 # they don't show up as "unknown": PortMaster itself, and our own Ports entry.
-SKIP_LAUNCHERS = frozenset(("PortMaster.sh", "PortMaster Scraper.sh"))
+SKIP_LAUNCHERS = frozenset(("PortMaster.sh", SCRAPER_LAUNCHER))
+
+# Metadata for the tool launchers (not scrapeable games), written by
+# --register-tools so they read as proper entries instead of bare filenames.
+# Only launchers actually present on disk are registered.
+TOOL_ENTRIES = {
+    "PortMaster.sh": {
+        "name": "PortMaster",
+        "desc": ("Install and manage community game ports. Browse the library, "
+                 "download ports, and manage what's installed on your device."),
+        "genre": "Utility",
+        "publisher": "PortMaster",
+    },
+    SCRAPER_LAUNCHER: {
+        "name": "PortMaster Scraper",
+        "desc": ("Scrapes names, descriptions, genres and box art for your "
+                 "installed PortMaster ports and writes them into the Ports "
+                 "gamelist. Run it after installing ports - new installs are "
+                 "also picked up automatically when you exit PortMaster."),
+        "genre": "Utility",
+        "publisher": "PortMaster",
+    },
+}
 
 # ES game extensions for the ports system (es_systems.yml: [sh, squashfs]).
 ES_EXTENSIONS = (".sh", ".squashfs")
@@ -476,6 +502,51 @@ def tag_text(game, tag):
     return (node.text or "").strip() if node is not None else ""
 
 
+def merge_fields(root, by_path, path, fields, force=False):
+    """Non-destructively merge `fields` into the <game> for `path`, creating it
+    if needed. Returns True if anything changed. Shared by the scrape and
+    --register-self paths."""
+    game = by_path.get(path)
+    touched = False
+    if game is None:
+        game = ET.SubElement(root, "game")
+        ET.SubElement(game, "path").text = "./" + path
+        by_path[path] = game
+        touched = True
+    for tag, val in fields.items():
+        node = game.find(tag)
+        if node is None:
+            node = ET.SubElement(game, tag)
+        elif (node.text or "").strip() and not force:
+            continue
+        if (node.text or "") != val:
+            node.text = val
+            touched = True
+    return touched
+
+
+def register_tools(ports_dir, gamelist, reload_when_done=True):
+    """Give the tool launchers (PortMaster, PortMaster Scraper) tidy gamelist
+    entries. Only registers launchers that actually exist on disk."""
+    root = load_gamelist(gamelist)
+    by_path = {normalise_path(g.findtext("path")): g
+               for g in root.findall("game") if g.find("path") is not None}
+    changed = False
+    for launcher, fields in TOOL_ENTRIES.items():
+        if not (ports_dir / launcher).is_file():
+            continue
+        if merge_fields(root, by_path, launcher, fields):
+            log(f"registered '{fields['name']}'")
+            changed = True
+    if changed:
+        write_gamelist(root, gamelist)
+        if reload_when_done:
+            reload_es()
+    else:
+        log("tool launchers already registered")
+    return 0
+
+
 # --------------------------------------------------------------------------- #
 # EmulationStation control
 # --------------------------------------------------------------------------- #
@@ -776,6 +847,10 @@ def main(argv=None):
                     help="do not call ES /reloadgames after --apply")
     ap.add_argument("--restart-es", action="store_true",
                     help="restart EmulationStation when done (instead of reload)")
+    ap.add_argument("--register-tools", action="store_true",
+                    help="just add gamelist entries for the tool launchers "
+                         "(PortMaster, PortMaster Scraper); used by install.sh, "
+                         "then exit")
     ap.add_argument("--version", action="version", version=VERSION)
     args = ap.parse_args(argv)
 
@@ -788,6 +863,10 @@ def main(argv=None):
     cfg_dir = find_cfg_dir(ports_dir, args.cfg_dir)
     media_dir = ports_dir / "images"
     gamelist = ports_dir / "gamelist.xml"
+
+    if args.register_tools:
+        # Standalone: register the tool launchers and stop (no scrape).
+        return register_tools(ports_dir, gamelist, reload_when_done=not args.no_reload)
 
     log(f"pmscraper {VERSION}")
     log(f"  ports dir : {ports_dir}")

@@ -326,6 +326,28 @@ class PMScraperTests(unittest.TestCase):
         run(t, "--apply", "--progress", expect=0)
         self.assertTrue(t.games()["./Balatro.sh"].findtext("image"))
 
+    def test_register_tools_adds_present_launchers_only(self):
+        t = self.tree
+        t.add_sh("PortMaster.sh")
+        t.add_sh("PortMaster Scraper.sh")
+        # a pre-existing hand-edited name must be preserved (non-destructive)
+        t.write_gamelist(
+            "<?xml version='1.0'?><gameList><game>"
+            "<path>./PortMaster.sh</path><name>My PM</name></game></gameList>")
+        run(t, "--register-tools")
+        games = t.games()
+        self.assertEqual(games["./PortMaster.sh"].findtext("name"), "My PM")  # kept
+        self.assertEqual(games["./PortMaster.sh"].findtext("genre"), "Utility")  # added
+        self.assertEqual(games["./PortMaster Scraper.sh"].findtext("name"),
+                         "PortMaster Scraper")
+
+    def test_register_tools_skips_absent_launcher(self):
+        t = self.tree
+        t.add_sh("PortMaster Scraper.sh")   # no PortMaster.sh on disk
+        run(t, "--register-tools")
+        self.assertNotIn("./PortMaster.sh", t.games())
+        self.assertIn("./PortMaster Scraper.sh", t.games())
+
     # --- output hygiene (PLAN verification 3) ---------------------------- #
 
     def test_all_emitted_tags_are_valid(self):
