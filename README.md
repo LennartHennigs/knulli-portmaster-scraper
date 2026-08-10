@@ -17,8 +17,9 @@ is scraped from the internet. Stdlib-only Python 3.7+, one file, no dependencies
 
 ## Details
 
-- Writes `name`, `desc`, `genre`, `tags`, `developer`, `publisher`, `rating`,
-  `image`, `thumbnail`, `titleshot` from `port.json` + the `images_pm/` cache.
+- **It prefills:** `name`, `desc`, `genre`, `tags`, `developer`, `publisher`,
+  `rating`, `image`, `thumbnail`, `titleshot` — from `port.json` + the
+  `images_pm/` cache.
 - **Non-destructive & idempotent** — only fills fields it owns, never touches
   `favorite`/`playcount`/etc., backs up to `.bak`, writes atomically; a second
   run is a no-op. Dry run is the default — only `--apply` writes.
