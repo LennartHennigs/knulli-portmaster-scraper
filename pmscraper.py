@@ -72,17 +72,13 @@ MANAGED_TAGS = (
     "developer", "publisher", "releasedate", "rating",
 )
 
-# Our own Ports-menu launcher. Skipped from normal scraping (it's a tool, not a
-# game), but --register-self gives it a tidy gamelist entry of its own.
+# Our own Ports-menu launcher (referenced by name in --unregister-self).
 SCRAPER_LAUNCHER = "PortMaster Scraper.sh"
 
-# Top-level launchers that are tools, not scrapeable games - always skipped so
-# they don't show up as "unknown": PortMaster itself, and our own Ports entry.
-SKIP_LAUNCHERS = frozenset(("PortMaster.sh", SCRAPER_LAUNCHER))
-
-# Metadata for the tool launchers (not scrapeable games), written by
-# --register-tools so they read as proper entries instead of bare filenames.
-# Only launchers actually present on disk are registered.
+# The tool launchers (not scrapeable games): metadata written by --register-tools
+# so they read as proper entries instead of bare filenames, and the single source
+# of truth for which launchers to skip during enumeration. Only launchers present
+# on disk are registered.
 TOOL_ENTRIES = {
     "PortMaster.sh": {
         "name": "PortMaster",
@@ -101,6 +97,9 @@ TOOL_ENTRIES = {
         "publisher": "PortMaster",
     },
 }
+
+# Tools are skipped in enumeration so they never show up as "unknown".
+SKIP_LAUNCHERS = frozenset(TOOL_ENTRIES)
 
 # ES game extensions for the ports system (es_systems.yml: [sh, squashfs]).
 ES_EXTENSIONS = (".sh", ".squashfs")
@@ -509,10 +508,33 @@ def tag_text(game, tag):
     return (node.text or "").strip() if node is not None else ""
 
 
+def index_by_path(root):
+    """Map each <game>'s normalised <path> to its element (skipping path-less)."""
+    return {normalise_path(g.findtext("path")): g
+            for g in root.findall("game") if g.find("path") is not None}
+
+
+def commit_gamelist(root, gamelist, changed, apply, reload_when_done,
+                    noop_msg, dry_msg, apply_msg=None):
+    """Shared tail for the write actions: report a no-op, write+reload under
+    --apply, or announce a dry run. Returns 0."""
+    if not changed:
+        log(noop_msg)
+    elif apply:
+        write_gamelist(root, gamelist)
+        if apply_msg:
+            log(apply_msg)
+        if reload_when_done:
+            reload_es()
+    else:
+        log(dry_msg)
+    return 0
+
+
 def merge_fields(root, by_path, path, fields, force=False):
     """Non-destructively merge `fields` into the <game> for `path`, creating it
     if needed. Returns True if anything changed. Shared by the scrape and
-    --register-self paths."""
+    --register-tools paths."""
     game = by_path.get(path)
     touched = False
     if game is None:
@@ -537,8 +559,7 @@ def register_tools(ports_dir, gamelist, apply, reload_when_done=True):
     entries. Only registers launchers that exist on disk. Like the scrape, this
     only writes with --apply; without it, it just reports what it would add."""
     root = load_gamelist(gamelist)
-    by_path = {normalise_path(g.findtext("path")): g
-               for g in root.findall("game") if g.find("path") is not None}
+    by_path = index_by_path(root)
     changed = False
     for launcher, fields in TOOL_ENTRIES.items():
         if not (ports_dir / launcher).is_file():
@@ -546,38 +567,23 @@ def register_tools(ports_dir, gamelist, apply, reload_when_done=True):
         if merge_fields(root, by_path, launcher, fields):
             log(f"{'registered' if apply else 'would register'} '{fields['name']}'")
             changed = True
-    if not changed:
-        log("tool launchers already registered")
-    elif apply:
-        write_gamelist(root, gamelist)
-        if reload_when_done:
-            reload_es()
-    else:
-        log("dry run - nothing written. Re-run with --apply.")
-    return 0
+    return commit_gamelist(root, gamelist, changed, apply, reload_when_done,
+                           "tool launchers already registered",
+                           "dry run - nothing written. Re-run with --apply.")
 
 
 def unregister_self(gamelist, apply, reload_when_done=True):
     """Remove the scraper's own gamelist entry (used by install.sh --uninstall).
     Leaves PortMaster's entry alone - PortMaster stays installed."""
     root = load_gamelist(gamelist)
-    removed = False
-    for game in list(root.findall("game")):
-        node = game.find("path")
-        if node is not None and normalise_path(node.text) == SCRAPER_LAUNCHER:
-            if apply:
-                root.remove(game)
-            removed = True
-    if not removed:
-        log("no PortMaster Scraper entry to remove")
-    elif apply:
-        write_gamelist(root, gamelist)
-        log("removed the PortMaster Scraper gamelist entry")
-        if reload_when_done:
-            reload_es()
-    else:
-        log("would remove the PortMaster Scraper gamelist entry")
-    return 0
+    game = index_by_path(root).get(SCRAPER_LAUNCHER)
+    if game is not None and apply:
+        root.remove(game)
+    return commit_gamelist(root, gamelist, game is not None, apply,
+                           reload_when_done,
+                           "no PortMaster Scraper entry to remove",
+                           "would remove the PortMaster Scraper gamelist entry",
+                           apply_msg="removed the PortMaster Scraper gamelist entry")
 
 
 # --------------------------------------------------------------------------- #
@@ -611,14 +617,14 @@ def notify_es(message, timeout=2):
         return False
 
 
-def emit_progress(done, total, name, args):
-    """Report scraping progress. --progress toasts ES (foreground only) with just
-    'name [m/n]' - no ASCII bar, which renders badly in a popup; --emit-progress
-    prints a machine line to stdout for the pugwash launcher to turn into an
-    on-screen progress bar. Both are best-effort."""
-    if getattr(args, "progress", False):
+def emit_progress(done, total, name, toast, emit):
+    """Report scraping progress. `toast` sends an ES popup 'name [m/n]' (no ASCII
+    bar - it renders badly in a popup; foreground-only); `emit` prints a machine
+    line to stdout for the pugwash launcher to turn into an on-screen bar. Both
+    are best-effort."""
+    if toast:
         notify_es(f"{name} [{done}/{total}]")
-    if getattr(args, "emit_progress", False):
+    if emit:
         # Tab-separated; name is last and never contains a tab. Real stdout.
         sys.stdout.write(f"PMPROG\t{done}\t{total}\t{name}\n")
         sys.stdout.flush()
@@ -933,11 +939,7 @@ def main(argv=None):
     entries = classify(es_entries, installed, catalog, use_fuzzy=not args.no_fuzzy)
 
     root = load_gamelist(gamelist)
-    by_path = {}
-    for game in root.findall("game"):
-        node = game.find("path")
-        if node is not None:
-            by_path[normalise_path(node.text)] = game
+    by_path = index_by_path(root)
 
     stale = find_stale(by_path, ports_dir)
 
@@ -953,7 +955,7 @@ def main(argv=None):
     total = len(to_resolve)
     for i, e in enumerate(to_resolve, 1):
         name = (e.info.get("attr") or {}).get("title") or Path(e.path).stem
-        emit_progress(i, total, name, args)
+        emit_progress(i, total, name, toast=args.progress, emit=args.emit_progress)
         art = resolve_art(e, images, media_dir, ports_dir, cfg_dir,
                           args.apply, args.online)
         e.fields = build_fields(e.info, e.scripts, e.path, art,
@@ -1020,10 +1022,10 @@ def main(argv=None):
 if __name__ == "__main__":
     # Exit codes: 0 = clean, 1 = ok but some launchers were unidentified,
     # 2 = an unexpected error (so callers can tell a crash from "unknowns").
+    # SystemExit (from sys.exit/die) is a BaseException, so it passes through
+    # the Exception handler untouched - a bad --ports-dir still exits 2 via die().
     try:
         sys.exit(main())
-    except SystemExit:
-        raise
     except Exception:
         import traceback
         traceback.print_exc()

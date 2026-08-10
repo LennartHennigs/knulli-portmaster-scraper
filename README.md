@@ -26,22 +26,55 @@ Stdlib-only Python 3.7+, one file. No dependencies, no API keys.
   repo; degrades cleanly offline.
 - **Auto-runs** after you exit PortMaster, scraping just the ports you installed.
 
-## Install (on the device)
+## Install
 
-```sh
-./install.sh              # locates dirs, installs 4 files, ends with a dry run
-./install.sh --uninstall  # removes them + the scraper's own gamelist entry
-./install.sh --dry-run    # show the plan, change nothing
-```
+`install.sh` runs **on the device** (it writes to `/userdata/...`, detects the
+filesystem, and verifies against your real ports), so you install over SSH.
+
+1. **Enable SSH** on the handheld — KNULLI: *Main Menu → Network Settings →
+   Enable SSH*. Note the device's IP; the default login is `root` / `linux`.
+2. **Copy this folder to the device** — either over SSH from your computer:
+   ```sh
+   scp -r knulli-portmaster-scraper root@<device-ip>:/userdata/
+   ```
+   …or with a card reader: drop the folder anywhere on the SD card *except*
+   `roms/ports/` (so ES doesn't list its `.sh` files), then reinsert it.
+3. **Run the installer** over SSH:
+   ```sh
+   ssh root@<device-ip>
+   cd /userdata/knulli-portmaster-scraper   # wherever you put it
+   ./install.sh
+   ```
+
+It locates your ports + PortMaster dirs, installs four files (the tool, the
+Ports-menu launcher, and a `game-start`/`game-end` hook pair), registers the
+tool entries, and ends with a dry run proving it can see your ports. Re-run any
+time to upgrade. `./install.sh --uninstall` removes everything (including the
+scraper's own gamelist entry); `./install.sh --dry-run` shows the plan only.
 
 > **exFAT/NTFS:** the auto-run hooks need the Unix exec bit, which exFAT/NTFS
 > can't provide, so ES won't run them there (KNULLI's ext4 SD is fine). The
 > **PortMaster Scraper** Ports-menu entry always works — run it by hand.
 
-## Use
+If the auto-run doesn't fire on ext4, make sure the hooks are executable (SSH):
 
-From the handheld: **Ports → PortMaster Scraper** (shows a progress bar). Over
-SSH or a card reader:
+```sh
+chmod 755 /userdata/system/configs/emulationstation/scripts/game-start/pmscraper-trigger.sh \
+          /userdata/system/configs/emulationstation/scripts/game-end/pmscraper-hook.sh
+```
+
+## How it runs
+
+Two ways, both installed by `install.sh`:
+
+1. **Automatically** — a `game-end` hook fires when you exit PortMaster and
+   scrapes just the ports you installed that session (nothing else). This is the
+   everyday path; you never have to think about it.
+2. **By hand** — the **PortMaster Scraper** entry in the Ports menu does a full
+   rescan of every installed port, with an on-screen progress bar. Use it for a
+   first run, after a big cleanup, or to fetch cover art over WiFi (`--online`).
+
+You can also run `pmscraper.py` directly over SSH or from a card reader:
 
 ```sh
 python3 pmscraper.py                                # dry run - shows the plan
