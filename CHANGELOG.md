@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.2.1
+
+Visible version + a success toast you can actually see.
+
+### Added
+- **Version on screen** — the Ports launcher shows `PortMaster Scraper v<x.y.z>`
+  above the progress bar and in the final summary; the auto-run toast and the
+  installer's toasts carry it too.
+
+### Fixed
+- **Installer success toast never appeared** — it was posted while ES was
+  backgrounded (the installer runs as a Ports entry) and then ES was restarted,
+  so the install looked like a bare reboot. The toast is now handed to a
+  detached waiter that fires once ES's HTTP server answers again.
+- **`install.sh` filesystem check printed garbage on macOS** — `stat -f -c %T`
+  is GNU syntax; BSD/macOS `stat -f` means something else. Falls back to
+  `df` + `mount` there, so installing from a Mac card reader reports the real
+  filesystem.
+
 ## v1.2.0
 
 On-device polish: graphical progress, smarter auto-run, release hardening.

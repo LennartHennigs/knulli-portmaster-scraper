@@ -62,6 +62,14 @@ user's actual SD card (mounted at `/Volumes/ROMs`, **ext4**) and KNULLI source:
   Ports menu (ES is backgrounded then). There is **no progress-bar endpoint**
   (that widget is ES's internal `GuiScraperRun`); `--progress` fakes it with
   per-port toast text. All best-effort.
+- **A toast can still be delivered from a Ports-menu launch — just not inline.**
+  The installer hands the message to a detached background waiter
+  (`toast_later` in `installer/installer-stub.sh`) that watches ES go down for
+  the restart, waits for `GET /` to answer again, sleeps a few seconds for the
+  UI to reach the foreground, then POSTs `/notify`. The child survives the
+  launcher exiting and the ES restart — **verified on device**. Before this the
+  install looked like a bare reboot. Poll slowly (2–3s): ES is re-reading a
+  ~1400-entry gamelist off SD at exactly that moment.
 - **On-screen output during a launched port = pugwash** (PortMaster's pygame GUI;
   runtime repo `PortsMaster/PortMaster-GUI`). Drive it via `PortMasterDialog.txt`:
   `PortMasterDialogInit "no-harbour"` → `PortMasterDialog "progress" msg done total`

@@ -47,10 +47,13 @@ case "$SINCE" in
 esac
 python3 "$PMSCRAPER" --apply $SELECT --progress --report "$REPORT" >"$LOG" 2>&1
 
-# Final summary toast (best-effort; some builds lack /notify).
+# Final summary toast (best-effort; some builds lack /notify). The version is
+# read from the source, not from the log text - same one-liner the installer and
+# the Ports launcher use, and it survives pmscraper dying before it logs.
 SUMMARY=$(grep -E '^(scraped|unknown)' "$LOG" | tr '\n' ' ')
+VER=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' "$PMSCRAPER" | head -1)
 if [ -n "$SUMMARY" ]; then
-    curl -s -m 3 -X POST --data "pmscraper: $SUMMARY" \
+    curl -s -m 3 -X POST --data "pmscraper${VER:+ v$VER}: $SUMMARY" \
         "http://127.0.0.1:1234/notify" >/dev/null 2>&1 || true
 fi
 

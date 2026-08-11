@@ -15,13 +15,42 @@ set -u
 LOG=/tmp/pmscraper-install.log
 : > "$LOG"
 
+ES=http://127.0.0.1:1234
+TITLE="PortMaster Scraper"   # gains " v<x.y.z>" once the payload is extracted
+
 toast() {   # best-effort ES on-screen notifier (shows once ES is foreground)
-    curl -s -m 3 -X POST --data "$1" "http://127.0.0.1:1234/notify" >/dev/null 2>&1 || true
+    curl -s -m 3 -X POST --data "$1" "$ES/notify" >/dev/null 2>&1 || true
+}
+
+es_up() {   # any reply, even a 404, means ES's HTTP server is listening
+    curl -s -m 2 -o /dev/null "$ES/"
+}
+
+# A toast posted from here never paints: this script runs as a "game" launched
+# from the Ports menu, so ES is backgrounded - and we restart it right after.
+# So hand the message to a detached waiter that waits for ES to answer again,
+# gives the UI a moment to reach the foreground, and only then posts. That is
+# why the install used to look like it "just reboots" with nothing to show.
+# Polling is deliberately slow: ES is reloading a ~1400-entry gamelist off SD
+# while this runs, so a per-second curl would just add contention.
+toast_later() {   # $1 = message, $2 = 1 to wait out an ES restart first
+    (
+        if [ "${2:-0}" = 1 ]; then
+            # Let the restart take ES down first, else we would toast into the
+            # instance that is on its way out.
+            i=0
+            while es_up && [ "$i" -lt 10 ]; do i=$((i + 1)); sleep 2; done
+        fi
+        i=0
+        while ! es_up && [ "$i" -lt 30 ]; do i=$((i + 1)); sleep 3; done
+        sleep 4          # let ES finish loading and take the foreground
+        toast "$1"
+    ) >/dev/null 2>&1 &
 }
 
 fail() {
     echo "$1" | tee -a "$LOG" >&2
-    toast "PortMaster Scraper: install failed - see $LOG"
+    toast_later "$TITLE: install failed - see $LOG"
     exit 1
 }
 
@@ -36,6 +65,11 @@ trap 'rm -rf "$TMP"' EXIT
 tail -n +"$MARKER" "$SELF" | tar xzf - -C "$TMP" >>"$LOG" 2>&1 \
     || fail "could not extract the payload"
 [ -f "$TMP/install.sh" ] || fail "payload is missing install.sh"
+
+# Version for the toasts - read straight out of the payload, no python needed
+# (same one-liner make-release.sh uses to name the build).
+PMVER=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' "$TMP/pmscraper.py" 2>/dev/null | head -1)
+[ -n "$PMVER" ] && TITLE="PortMaster Scraper v$PMVER"
 
 # --- run the real installer (forwards --dry-run / --ports-dir / etc.) ------ #
 echo "== running install.sh $*" >>"$LOG"
@@ -57,17 +91,19 @@ if [ "$DRY" = 0 ]; then
 fi
 
 echo "== done" >>"$LOG"
-toast "PortMaster Scraper installed - see it in the Ports menu"
 
 # --- restart ES so the new entry appears and this installer drops from the
-#     menu (mirrors pmscraper's restart_es: swissknife, else HTTP /quit). ---- #
+#     menu (mirrors pmscraper's restart_es: swissknife, else HTTP /quit). The
+#     success toast is queued first but only fires once ES is back up. -------- #
 if [ "$DRY" = 0 ]; then
+    toast_later "$TITLE installed - see it in the Ports menu" 1
+
     if command -v knulli-es-swissknife >/dev/null 2>&1; then
         knulli-es-swissknife --restart >>"$LOG" 2>&1 || true
     elif command -v batocera-es-swissknife >/dev/null 2>&1; then
         batocera-es-swissknife --restart >>"$LOG" 2>&1 || true
     else
-        curl -s -m 3 "http://127.0.0.1:1234/quit" >/dev/null 2>&1 || true
+        curl -s -m 3 "$ES/quit" >/dev/null 2>&1 || true
     fi
 fi
 

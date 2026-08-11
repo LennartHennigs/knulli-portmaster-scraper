@@ -43,6 +43,13 @@ if [ ! -f "$PMSCRAPER" ]; then
 fi
 $ESUDO chmod +x "$PMSCRAPER" 2>/dev/null || true
 
+# Version for the on-screen title (the log carries it too, but nobody reads the
+# log on the device). Read from the source rather than `--version` so we do not
+# pay a python startup before the first frame; same one-liner make-release.sh
+# and the installer use. Empty on a miss, and the label just drops it.
+PMVER=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' "$PMSCRAPER" | head -1)
+TITLE="PortMaster Scraper${PMVER:+ v$PMVER}"
+
 # --- graphical progress via PortMaster's pugwash GUI ----------------------- #
 # PortMasterDialogInit starts pugwash in fifo_control mode; PortMasterDialog
 # sends it commands (message / progress / progress_clear). Always tear it down.
@@ -51,7 +58,7 @@ PortMasterDialogInit "no-harbour"
 trap 'PortMasterDialogExit; pm_finish' EXIT
 
 PortMasterDialog "messages_begin"
-PortMasterDialog "message" "PortMaster Scraper\nscanning installed ports..."
+PortMasterDialog "message" "$TITLE\nscanning installed ports..."
 
 # --emit-progress: PMPROG lines on stdout (one per port), human log on stderr.
 # Drive the pugwash progress bar from each PMPROG line; log the rest.
@@ -66,13 +73,13 @@ PortMasterDialog "progress_clear"
 
 if [ "$RC" -ge 2 ]; then
     # 0 = ok, 1 = ok but some launchers unidentified, >=2 = a real error.
-    PortMasterDialog "message" "Scrape failed (exit $RC) - see $LOG"
+    PortMasterDialog "message" "$TITLE\nScrape failed (exit $RC) - see $LOG"
     sleep 3
 else
     # Summarise from the log (human output went to stderr -> $LOG).
     WRITTEN=$(grep -oE '[0-9]+ written' "$LOG" | head -1 | grep -oE '^[0-9]+')
     UNKNOWN=$(grep -oE '^unknown +[0-9]+' "$LOG" | head -1 | grep -oE '[0-9]+')
-    PortMasterDialog "message" "Done: ${WRITTEN:-0} updated, ${UNKNOWN:-0} unidentified."
+    PortMasterDialog "message" "$TITLE\nDone: ${WRITTEN:-0} updated, ${UNKNOWN:-0} unidentified."
     sleep 2
 fi
 PortMasterDialog "messages_end"

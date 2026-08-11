@@ -139,7 +139,20 @@ fi
 # 2. Filesystem check (exFAT can't carry the exec bit or Unix perms)
 # --------------------------------------------------------------------------- #
 step "Filesystem"
-FSTYPE=$(stat -f -c %T "$PORTS_DIR" 2>/dev/null || echo "unknown")
+fs_type() {   # best-effort filesystem type of $1
+    # The device ships GNU/busybox stat, where -f -c %T is the fs type.
+    t=$(stat -f -c %T "$1" 2>/dev/null) || t=""
+    if [ -z "$t" ]; then
+        # BSD/macOS stat has an incompatible -f (a format string), so it echoes
+        # "-c" and fails. Ask df + mount instead - relevant when installing onto
+        # a card in a Mac reader.
+        dev=$(df -P "$1" 2>/dev/null | awk 'NR == 2 { print $1 }')
+        [ -n "$dev" ] && t=$(mount 2>/dev/null | awk -v d="$dev" \
+            '$1 == d { sub(/^[^(]*\(/, ""); sub(/[,)].*/, ""); print; exit }')
+    fi
+    printf '%s' "${t:-unknown}"
+}
+FSTYPE=$(fs_type "$PORTS_DIR")
 say "ports partition fs: $FSTYPE"
 case "$FSTYPE" in
     *exfat*|*msdos*|*vfat*|*fuseblk*|*ntfs*)

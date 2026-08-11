@@ -38,7 +38,7 @@ import xml.etree.ElementTree as ET
 
 from pathlib import Path
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 
 PORTS_JSON_URL = "https://github.com/PortsMaster/PortMaster-New/releases/latest/download/ports.json"
 RAW_PORT_URL = "https://raw.githubusercontent.com/PortsMaster/PortMaster-New/main/ports/{port}/{file}"
