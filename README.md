@@ -8,10 +8,12 @@ the card.
 - Copyright (C) 2026 Lennart Hennigs.
 - Released under the MIT license.
 
-To see the latest changes please take a look at the [Changelog](CHANGELOG.md).
+To see the latest changes please take a look at the
+[Changelog](https://github.com/LennartHennigs/knulli-portmaster-scraper/blob/main/CHANGELOG.md).
 
 If you find this tool helpful please consider giving it a ⭐️ at
-[GitHub](../../) and/or [buy me a ☕️](https://ko-fi.com/lennart0815).
+[GitHub](https://github.com/LennartHennigs/knulli-portmaster-scraper) and/or
+[buy me a ☕️](https://ko-fi.com/lennart0815).
 
 Thank you!
 
@@ -55,7 +57,7 @@ Python 3.7+.
 **No SSH, no computer terminal** — one file, run from the Ports menu:
 
 1. Download `knulli-portmaster-scraper-vX.Y.Z.zip` from the
-   [Releases](../../releases) page and unzip it.
+   [Releases](https://github.com/LennartHennigs/knulli-portmaster-scraper/releases) page and unzip it.
 2. Copy the single **`Install PortMaster Scraper.sh`** onto your SD card's
    `roms/ports/` folder — via a card reader, or over KNULLI's network share
    (`\\<device-ip>\share` → `roms/ports`).
