@@ -4,18 +4,37 @@ Give your PortMaster ports proper titles, descriptions, genres and artwork in
 KNULLI's (and Batocera's) Ports menu — from the data PortMaster already put on
 the card.
 
-## The problem
+- Author: Lennart Hennigs (<https://www.lennarthennigs.de>)
+- Copyright (C) 2026 Lennart Hennigs.
+- Released under the MIT license.
+
+To see the latest changes please take a look at the [Changelog](CHANGELOG.md).
+
+If you find this tool helpful please consider giving it a ⭐️ at
+[GitHub](../../) and/or [buy me a ☕️](https://ko-fi.com/lennart0815).
+
+Thank you!
+
+## Description
 
 Games installed through PortMaster arrive with no metadata — in the Ports menu
 they're bare `.sh` filenames with no title, description or artwork. Ordinary
 scrapers can't fix it (they look games up by name/hash, and a port's `.sh`
 matches nothing). But PortMaster already *has* all that information on your SD
-card. So this tool takes it from there and fills it in.
+card: it wrote a `port.json` for every port it installed and downloaded the
+artwork alongside it. So this tool takes it from there and fills it in.
 
 It reads each installed game's info from PortMaster — its `port.json` and
-artwork cache — and writes it into `/userdata/roms/ports/gamelist.xml`. No
-scraper service, and no internet unless you opt into `--online` for cover art
-PortMaster hasn't cached. Stdlib-only Python 3.7+, one file, no dependencies.
+artwork cache — and writes it into `/userdata/roms/ports/gamelist.xml`, the file
+EmulationStation reads to draw the Ports menu. No scraper service, and no
+internet unless you opt into `--online` for the cover art PortMaster doesn't
+cache locally. The merge is non-destructive and idempotent: a second run is a
+no-op, and anything you (or ES's own scraper) already set is left alone.
+
+It's a single stdlib-only Python file — no dependencies — and it runs both on the
+handheld and from a card reader on your computer. Tested on an Anbernic RG40XXH
+running KNULLI; it should work on any KNULLI/Batocera device with PortMaster and
+Python 3.7+.
 
 ## Details
 
