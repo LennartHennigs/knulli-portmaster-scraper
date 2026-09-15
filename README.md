@@ -26,12 +26,16 @@ matches nothing). But PortMaster already *has* all that information on your SD
 card: it wrote a `port.json` for every port it installed and downloaded the
 artwork alongside it. So this tool takes it from there and fills it in.
 
-It reads each installed game's info from PortMaster — its `port.json` and
-artwork cache — and writes it into `/userdata/roms/ports/gamelist.xml`, the file
-EmulationStation reads to draw the Ports menu. No scraper service, and no
-internet unless you opt into `--online` for the cover art PortMaster doesn't
-cache locally. The merge is non-destructive and idempotent: a second run is a
-no-op, and anything you (or ES's own scraper) already set is left alone.
+It reads each installed game's info from PortMaster — its `port.json`, a
+porter-authored `gameinfo.xml` when the port ships one (real description,
+developer, publisher, release date — better than `port.json`'s short install
+blurb), and artwork already on the card (including cover art most ports ship
+in their own folder) — and writes it into `/userdata/roms/ports/gamelist.xml`,
+the file EmulationStation reads to draw the Ports menu. No scraper service,
+and no internet needed for most of it; `--online` only tops up the covers
+that aren't on the card already. The merge is non-destructive and idempotent:
+a second run is a no-op, and anything you (or ES's own scraper) already set
+is left alone.
 
 It's a single stdlib-only Python file — no dependencies — and it runs both on the
 handheld and from a card reader on your computer. Tested on an Anbernic RG40XXH
@@ -41,15 +45,16 @@ Python 3.7+.
 ## Details
 
 - **It prefills:** `name`, `desc`, `genre`, `tags`, `developer`, `publisher`,
-  `rating`, `image`, `thumbnail`, `titleshot` — from `port.json` + the
-  `images_pm/` cache.
+  `releasedate`, `rating`, `players`, `image`, `thumbnail`, `titleshot` — from
+  `gameinfo.xml` (when present) + `port.json` + artwork already on the card
+  (a port's own cover file, or the `images_pm/` cache).
 - **Non-destructive & idempotent** — only fills fields it owns, never touches
   `favorite`/`playcount`/etc., backs up to `.bak`, writes atomically; a second
   run is a no-op. Dry run is the default — only `--apply` writes.
 - **Reloads ES in place** (its local HTTP API) — art appears without a restart.
 - **Reports what it can't identify** — non-PortMaster `.sh` are never overwritten.
-- **`--online`** fills cover/box art (not in the local cache) from the PortMaster
-  repo; degrades cleanly offline.
+- **`--online`** fills cover/box art still missing after checking the card,
+  from the PortMaster repo; degrades cleanly offline.
 - **Auto-runs** after you exit PortMaster, scraping just the ports you installed.
 
 ## Install
@@ -64,9 +69,9 @@ Python 3.7+.
 3. On the handheld: **Ports → Install PortMaster Scraper**. It installs
    everything and restarts EmulationStation, then removes itself.
 
-Done — a **PortMaster Scraper** entry appears in the Ports menu, and new ports
-are scraped automatically when you exit PortMaster. Run the installer again any
-time to upgrade.
+Done — **PortMaster Scraper** and **PortMaster Scraper (Rescan All)** entries
+appear in the Ports menu, and new ports are scraped automatically when you
+exit PortMaster. Run the installer again any time to upgrade.
 
 > **exFAT/NTFS:** the auto-run hooks need the Unix exec bit, which exFAT/NTFS
 > can't provide, so ES won't run them there (KNULLI's ext4 SD is fine). The
@@ -81,7 +86,7 @@ Instead of the packaged installer, run `install.sh` from the repo on the device:
 scp -r knulli-portmaster-scraper root@<device-ip>:/userdata/   # SSH must be on
 ssh root@<device-ip>
 cd /userdata/knulli-portmaster-scraper
-./install.sh              # detect dirs, install 4 files, register, verify
+./install.sh              # detect dirs, install 5 files, register, verify
 ./install.sh --uninstall  # remove them + the scraper's gamelist entry
 ./install.sh --dry-run    # show the plan only
 ```
@@ -98,12 +103,18 @@ Build the release artifact yourself with `./make-release.sh` (writes to `build/`
 
 ## How it runs
 
-Two ways, both installed by `install.sh`:
+Three ways, all installed by `install.sh`:
 
-1. **By hand** — the **PortMaster Scraper** entry in the Ports menu does a full
-   rescan of every installed port, with an on-screen progress bar. Use it for a
-   first run, after a big cleanup, or to fetch cover art over WiFi (`--online`).
-2. **Automatically** — a `game-end` hook fires when you exit PortMaster and
+1. **By hand, gaps only** — the **PortMaster Scraper** entry in the Ports menu
+   scans every installed port and fills in whatever's missing, with an
+   on-screen progress bar. Use it for a first run, after a big cleanup, or to
+   fetch remaining cover art over WiFi (`--online`). Never overwrites a field
+   that already has a value.
+2. **By hand, force a full rewrite** — **PortMaster Scraper (Rescan All)**
+   does the same scan but with `--force`, overwriting every field with
+   freshly-resolved data. Use it after updating pmscraper, or if a port's
+   metadata looks stale from an older run.
+3. **Automatically** — a `game-end` hook fires when you exit PortMaster and
    scrapes just the ports you installed that session (nothing else). This is the
    everyday path; you never have to think about it.
 
@@ -120,7 +131,7 @@ python3 pmscraper.py --ports-dir /Volumes/SD/roms/ports   # from a card reader
 | Flag | Effect |
 |---|---|
 | `--apply` | actually write (default is a dry run) |
-| `--online` | fetch cover art + `ports.json` from GitHub |
+| `--online` | fetch cover art still missing after checking the card, + `ports.json` from GitHub |
 | `--force` | overwrite values already in the gamelist |
 | `--only-missing` / `--since EPOCH` | limit to missing/partial, or to newly-installed ports |
 | `--prefer-covers` | use cover art as `<image>` (themes without `<thumbnail>`) |
@@ -141,6 +152,20 @@ Enumerates every `.sh`/`.squashfs` ES would show and sorts each into a bucket:
 | `catalog` / `fuzzy` | `.sh` matches an upstream archive name / title | scraped (needs `--online`) |
 | `unknown` | not a PortMaster port | never touched; reported |
 | `stale` | gamelist entry whose `.sh` is gone | reported; removed only with `--prune` |
+
+## Troubleshooting
+
+- **`gamelist.xml` won't parse / looks corrupted after using a Mac card
+  reader.** Some macOS ext4 drivers (observed with Paragon's `UFSD_EXTFS4`)
+  can replace `gamelist.xml` with a small macOS extended-attribute blob
+  instead of the real file while the card sits mounted — this is a driver
+  bug, not something pmscraper does. Check `gamelist.xml.bak` next to it;
+  pmscraper backs the file up there before every write, so your data is
+  almost always recoverable: `cp gamelist.xml.bak gamelist.xml`.
+- **`--online` fails with an SSL certificate error on macOS.** A local
+  Python/certifi quirk, not a tool bug — it degrades to offline automatically.
+  Set `SSL_CERT_FILE=/etc/ssl/cert.pem` if you need `--online` to work from a
+  Mac.
 
 ## Development
 

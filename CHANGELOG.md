@@ -1,5 +1,40 @@
 # Changelog
 
+## v1.3.0
+
+Better data, sourced from what's already on the card: porter-authored
+`gameinfo.xml` text, and cover art ports ship with themselves. Plus a way to
+force a full rewrite from the device.
+
+### Added
+- **`gameinfo.xml` preferred over `port.json` for editorial text** — when a
+  port ships one (most do), its real description, developer, publisher,
+  release date, genre, rating and player count now win over `port.json`'s
+  short install blurb and porter-credit-as-developer. Non-destructive merge
+  still applies: already-scraped ports need `--force` (or the new "Rescan
+  All" entry below) to pick up the improvement.
+- **Cover art resolved from the port's own directory, fully offline** — most
+  ports ship a `cover.*` file directly alongside `port.json`; pmscraper now
+  checks there before falling back to `--online`. Fixes box art for ports
+  whose `port.json` doesn't declare a cover at all (`descent`, `descent2`,
+  `doom3`, `masseffect`), which `--online` couldn't find either.
+- **"PortMaster Scraper (Rescan All)" Ports-menu entry** — a second launcher
+  that runs with `--force`, so you can force a full rewrite of every
+  installed port's data straight from the device, no SSH needed. The
+  existing "PortMaster Scraper" entry is unchanged (fills gaps only).
+
+### Known issues
+- **macOS card readers can corrupt `gamelist.xml` on ext4 cards.** Observed
+  with the Paragon `UFSD_EXTFS4` driver: after ejecting and later re-mounting
+  a card, `gamelist.xml` was replaced by a 4KB macOS AppleDouble/extended-
+  attribute blob (a `com.apple.provenance` xattr written in place of the
+  file's real content) instead of valid XML. Not caused by pmscraper — it
+  writes normally (backup + atomic replace) and the corruption happened
+  between runs, purely from the card sitting mounted on macOS. If
+  `gamelist.xml` won't parse after pulling the card from a Mac, check
+  `gamelist.xml.bak` (pmscraper backs it up before every write) before
+  assuming data is lost.
+
 ## v1.2.1
 
 Visible version + a success toast you can actually see.

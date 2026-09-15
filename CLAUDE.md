@@ -12,8 +12,15 @@ metadata (`port.json`) and downloaded its artwork (`images_pm/`) onto the SD
 card. The tool *transcribes* that into `/userdata/roms/ports/gamelist.xml`. It
 works fully offline; `--online` only tops up covers from PortMaster's repo.
 
-Root cause it solves: PortMaster's own KNULLI gamelist writer only fires for
-ports shipping a `gameinfo.xml`, and **0 of ~1386 ports ship one**.
+Root cause it solves: neither PortMaster nor ES ever turns a port's own
+metadata — `port.json`, or a porter-shipped `gameinfo.xml` — into a KNULLI
+gamelist entry, no matter which files the port ships.
+
+Text-field precedence, when a port has more than one source available:
+`gameinfo.xml` (porter-authored editorial text, present on most but not all
+installed ports — see below) > `port.json` > `--online` catalog. Art
+precedence: `images_pm` cache > cover shipped in the port's own directory >
+`--online` download.
 
 ## Scope / non-goals
 
@@ -34,6 +41,18 @@ user's actual SD card (mounted at `/Volumes/ROMs`, **ext4**) and KNULLI source:
 - **KNULLI's ES is its own fork:** `knulli-cfw/batocera-emulationstation`,
   branch `knulli` (pinned in `knulli-cfw/distribution` →
   `package/batocera/emulationstation/.../batocera-emulationstation.mk`).
+- **KNULLI ES's long-press "GAME OPTIONS → SCRAPE" is hardwired** to ES's own
+  `GuiGameScraper` (`es-app/src/guis/GuiGameOptions.cpp`) — no script hook, so
+  it can't be repointed at pmscraper without patching/recompiling ES (out of
+  scope for this stdlib-only Python installer).
+- **pugwash supports an interactive on-screen picker** beyond the
+  progress/message dialog used for the launcher's progress bar (see below):
+  the `selection_list` FIFO command (`PortsMaster/PortMaster-GUI`'s
+  `pugwash`), backed by `reg_set_info`-registered items — undocumented but
+  real, useful if a future feature needs an in-UI chooser.
+- Fetching source from these forks: use `raw.githubusercontent.com/<repo>/
+  <branch>/<path>`, not `gh api .../contents/...` — the contents API 404s on
+  paths that exist fine via raw fetch or the recursive git-trees API.
 - **ES event-script contract** (verified in that fork's `es-app/src/FileData.cpp`,
   `launchGame`):
   - `game-start` → `fireEvent("game-start", rom, basename, getName())`:
@@ -81,23 +100,31 @@ user's actual SD card (mounted at `/Volumes/ROMs`, **ext4**) and KNULLI source:
   relaunches ES). HTTP `GET /restart` REBOOTS THE DEVICE — don't use it.
   `/reloadgames` from a launched port (ES backgrounded) won't repaint until ES is
   foreground → tell the user to run **Update Gamelists** (or reboot).
-- **Network / covers:** `images_pm` holds **screenshots only (0 covers)**;
-  PortMaster has covers for ~52% of ports (712/1348) upstream, so `--online` is
-  required for box art. `<image>`=screenshot, `<thumbnail>`("Box")=cover — keep
-  strict, NEVER a screenshot in the box slot (user correction). Launcher uses
-  `--online` (degrades cleanly offline → `Temporary failure in name resolution`);
-  auto-run hook stays offline. On macOS, `--online` needs
+- **Network / covers:** `images_pm` on a fresh card holds **screenshots only
+  (0 covers)** — but most ports ship their **own cover file directly in their
+  port directory** (`<portdir>/cover.*`; verified 38/45 installed ports on the
+  user's card, including four — `descent`, `descent2`, `doom3`, `masseffect`
+  — whose `port.json` doesn't declare a `covers[]` entry at all, so even
+  `--online` couldn't find one before `local_cover()` was added). `--online`
+  is still the last resort for the remainder: PortMaster has covers for ~52%
+  of ports (712/1348) upstream. `<image>`=screenshot, `<thumbnail>`("Box")=
+  cover — keep strict, NEVER a screenshot in the box slot (user correction).
+  Launcher uses `--online` (degrades cleanly offline → `Temporary failure in
+  name resolution`); auto-run hook stays offline. On macOS, `--online` needs
   `SSL_CERT_FILE=/etc/ssl/cert.pem`; the device's own certs work.
 - **gamelist entries carry `id` attributes and pre-existing metadata** from ES's
   own ScreenScraper runs — the merge MUST stay non-destructive (see below).
 
 ## Architecture (pmscraper.py)
 
-Flow in `main()`: discover dirs → `index_images` → `scan_installed_ports` →
+Flow in `main()`: discover dirs → `index_images` → `scan_installed_ports`
+(also picks up each port's `gameinfo.xml`, if any, via `parse_gameinfo`, and
+stashes the port's own directory as `info["_portdir"]`) →
 `enumerate_es_entries` (walk like ES: `.sh`/`.squashfs`, skip dot-entries and
 the top-level tool launchers in `SKIP_LAUNCHERS`) → `classify` into buckets →
-resolve art +
-`build_fields` + `completeness` → merge → `print_summary`/`write_report` →
+resolve art (`resolve_art` → `local_cover` before `download_art`) +
+`build_fields` (layers `gameinfo.xml` text over `port.json`'s, field by
+field) + `completeness` → merge → `print_summary`/`write_report` →
 `reload_es`.
 
 **Buckets:** `port.json` / `catalog` (stem matches upstream archive name, needs
@@ -108,10 +135,14 @@ resolve art +
 **Selectors/actions:** `--since EPOCH` = only ports whose `port.json` is newer
 (auto-run's "new ports only"; game-start records `date +%s`, game-end passes it);
 `--emit-progress` = PMPROG lines on stdout + log→stderr, for the pugwash launcher;
-`--register-tools` = tidy gamelist entries for PortMaster + Scraper (`TOOL_ENTRIES`,
-non-destructive, present-launchers-only, needs `--apply`); `--unregister-self` =
-drop the scraper's own entry (install.sh --uninstall). Ports launcher = full scan;
-hooks = new-only. **Exit codes:** 0 ok, 1 unknowns present, 2 crash/setup error.
+`--register-tools` = tidy gamelist entries for PortMaster + both Scraper
+launchers (`TOOL_ENTRIES`, non-destructive, present-launchers-only, needs
+`--apply`); `--unregister-self` = drop both of the scraper's own entries
+(`SCRAPER_LAUNCHERS`, install.sh --uninstall). Two Ports-menu launchers: plain
+"PortMaster Scraper" = full scan, non-destructive (fills gaps only);
+"PortMaster Scraper (Rescan All)" = same but with `--force` (overwrites
+everything). Hooks = new-only (`--since`). **Exit codes:** 0 ok, 1 unknowns
+present, 2 crash/setup error.
 
 ### Invariants — do not break
 
@@ -127,10 +158,19 @@ hooks = new-only. **Exit codes:** 0 ok, 1 unknowns present, 2 crash/setup error.
   (e.g. `descent`, `descent2`). `download_art` normalizes it; never call
   `.get()` on it unguarded (it crashed the whole `--apply` run once).
 - **`SKIP_LAUNCHERS = frozenset(TOOL_ENTRIES)`** — the tool launchers
-  (`PortMaster.sh`, `PortMaster Scraper.sh`) are skipped in enumeration; else the
-  scraper reports *itself* as `unknown` and forces exit 1 on every auto-run.
-  Add a tool launcher to `TOOL_ENTRIES` and it's skipped + registered from that
-  one place.
+  (`PortMaster.sh`, `PortMaster Scraper.sh`, `PortMaster Scraper (Rescan
+  All).sh`) are skipped in enumeration; else the scraper reports *itself* as
+  `unknown` and forces exit 1 on every auto-run. Add a tool launcher to
+  `TOOL_ENTRIES` and it's skipped + registered from that one place.
+- **`gameinfo.xml` is porter-shipped, not something PortMaster's own scraper
+  writes** — a `<gameList><game>` doc some porters put directly in
+  `<portdir>/`, alongside `port.json`, with real editorial text. Only look for
+  it right there, never recursively (`freesynd/data/gameinfo.xml` on a real
+  card is an unrelated file that happens to share the name, nested two levels
+  deeper than any real one — a glob that recursed would pick it up wrongly).
+  Its `<image>` tag is untrustworthy (sometimes a cover, sometimes a
+  screenshot, no way to tell which) — `parse_gameinfo` ignores it; art stays
+  on the `port.json`/`local_cover`/`images_pm`/`--online` pipeline.
 - **`name_cleaner` must mirror** `harbourmaster.util.name_cleaner` or artwork
   lookups misalign.
 - **stdlib `xml.etree` is intentional** (KNULLI ships no `defusedxml`; we only
@@ -155,7 +195,7 @@ The card is ext4 (Paragon `UFSD_EXTFS4`), so `chmod 755` sticks. Logs land at
 
 ## Testing / verification
 
-- `python3 -m unittest discover -s tests` — 26 tests, a throwaway synthetic
+- `python3 -m unittest discover -s tests` — 34 tests, a throwaway synthetic
   KNULLI tree, no network, no device. Covers apply/dry-run/idempotence/force/
   online(via seeded cache)/malformed and every bucket + completeness path.
 - `python3 -m py_compile pmscraper.py`; run once under `python3 -W error`.
@@ -163,6 +203,9 @@ The card is ext4 (Paragon `UFSD_EXTFS4`), so `chmod 755` sticks. Logs land at
   substitution) so check it with `bash -n`, not `sh -n`.
 - Against a real card: **read-only dry run first** —
   `python3 pmscraper.py --ports-dir /Volumes/<card>/roms/ports`.
+- To safely test `--apply`/`--force` against real card data without risking
+  it: `rsync` `roms/ports/` (excluding `*.port`/`*.squashfs`/`lib/`/`libs/`
+  payloads) to a scratch dir and run `--apply` there instead.
 - Verify a refactor is **behavior-neutral** against the card: `git stash`, run
   the dry-run, compare output byte-for-byte. `cmp -s <repo> <card>` confirms
   installed files match.
@@ -173,7 +216,12 @@ The card is ext4 (Paragon `UFSD_EXTFS4`), so `chmod 755` sticks. Logs land at
   quirk) — not a tool bug; it degrades to offline. Tests exercise `--online`
   via a seeded local `pmscraper_ports.json` cache instead of the network.
 - macOS writes `._*` AppleDouble shadow files onto the ext4/exFAT card; both ES
-  and `enumerate_es_entries` skip dot-entries, so they're harmless.
+  and `enumerate_es_entries` skip dot-entries, so *those* are harmless. But
+  the macOS ext4 driver (observed: Paragon `UFSD_EXTFS4`) can go further and
+  replace `gamelist.xml` itself with a `com.apple.provenance` xattr blob
+  while the card sits mounted — not caused by pmscraper. If a real card's
+  `gamelist.xml` won't parse, check `gamelist.xml.bak` (written before every
+  save) before assuming data loss.
 - On the user's card, `Animal Crossing.sh` and `Half-Life 2 Episode 2.sh` are
   from **other sources** (no `port.json`) — correctly `unknown`; leave them.
 - Never `--apply` to the user's real card without explicit consent.

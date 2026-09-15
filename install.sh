@@ -6,11 +6,12 @@
 #   ./install.sh --uninstall  remove the three installed files
 #   ./install.sh --ports-dir /path/to/roms/ports   override detection
 #
-# It installs four files:
-#   pmscraper.py             -> <PortMaster>/pmscraper/pmscraper.py  (survives updates)
-#   PortMaster Scraper.sh    -> <roms>/ports/                        (Ports-menu entry)
-#   pmscraper-trigger.sh     -> <ES configs>/scripts/game-start/     (auto-run marker)
-#   pmscraper-hook.sh        -> <ES configs>/scripts/game-end/       (auto-run)
+# It installs five files:
+#   pmscraper.py                       -> <PortMaster>/pmscraper/pmscraper.py  (survives updates)
+#   PortMaster Scraper.sh              -> <roms>/ports/                        (Ports-menu entry)
+#   PortMaster Scraper (Rescan All).sh -> <roms>/ports/                        (Ports-menu entry)
+#   pmscraper-trigger.sh               -> <ES configs>/scripts/game-start/     (auto-run marker)
+#   pmscraper-hook.sh                  -> <ES configs>/scripts/game-end/       (auto-run)
 #
 # gamelist.xml, the images/ folder and any .bak are never touched.
 
@@ -99,6 +100,7 @@ done
 
 DEST_PY="$PM_DIR/pmscraper/pmscraper.py"
 DEST_LAUNCH="$PORTS_DIR/PortMaster Scraper.sh"
+DEST_LAUNCH_FORCE="$PORTS_DIR/PortMaster Scraper (Rescan All).sh"
 DEST_TRIGGER="$ES_DIR/scripts/game-start/pmscraper-trigger.sh"
 DEST_HOOK="$ES_DIR/scripts/game-end/pmscraper-hook.sh"
 
@@ -123,7 +125,7 @@ if [ "$UNINSTALL" = 1 ]; then
     elif [ -f "$DEST_PY" ]; then
         python3 "$DEST_PY" --ports-dir "$PORTS_DIR" --apply --unregister-self --no-reload || true
     fi
-    for f in "$DEST_PY" "$DEST_LAUNCH" "$DEST_TRIGGER" "$DEST_HOOK"; do
+    for f in "$DEST_PY" "$DEST_LAUNCH" "$DEST_LAUNCH_FORCE" "$DEST_TRIGGER" "$DEST_HOOK"; do
         if [ -e "$f" ]; then run "rm -f \"$f\""; say "  removed $f"
         else say "  (absent) $f"; fi
     done
@@ -178,6 +180,7 @@ install_file() {   # src dest
 
 install_file "$SELF_DIR/pmscraper.py"                     "$DEST_PY"
 install_file "$SELF_DIR/ports/PortMaster Scraper.sh"      "$DEST_LAUNCH"
+install_file "$SELF_DIR/ports/PortMaster Scraper (Rescan All).sh" "$DEST_LAUNCH_FORCE"
 install_file "$SELF_DIR/hooks/game-start/pmscraper-trigger.sh" "$DEST_TRIGGER"
 install_file "$SELF_DIR/hooks/game-end/pmscraper-hook.sh" "$DEST_HOOK"
 
@@ -188,7 +191,7 @@ install_file "$SELF_DIR/hooks/game-end/pmscraper-hook.sh" "$DEST_HOOK"
 # cannot run these scripts at all (the Ports-menu launcher still works). On
 # ext4 - the KNULLI default for SD cards - this is fine.
 step "Permissions"
-for f in "$DEST_PY" "$DEST_LAUNCH" "$DEST_TRIGGER" "$DEST_HOOK"; do
+for f in "$DEST_PY" "$DEST_LAUNCH" "$DEST_LAUNCH_FORCE" "$DEST_TRIGGER" "$DEST_HOOK"; do
     run "chmod 755 \"$f\" 2>/dev/null || true"
     if [ "$DRY" = 0 ] && [ ! -x "$f" ]; then
         say "  warn: $f is not executable (exFAT?) - ES still runs it via sh"
@@ -219,6 +222,8 @@ else
 fi
 
 say ""
-say "Installed. Run it from the Ports menu ('PortMaster Scraper'), or over SSH:"
+say "Installed. Run it from the Ports menu ('PortMaster Scraper' for new/missing"
+say "data only, or 'PortMaster Scraper (Rescan All)' to force a full rewrite),"
+say "or over SSH:"
 say "  python3 \"$DEST_PY\" --apply"
 say "New ports are scraped automatically when you exit PortMaster."
