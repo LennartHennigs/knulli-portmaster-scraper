@@ -153,6 +153,20 @@ Enumerates every `.sh`/`.squashfs` ES would show and sorts each into a bucket:
 | `unknown` | not a PortMaster port | never touched; reported |
 | `stale` | gamelist entry whose `.sh` is gone | reported; removed only with `--prune` |
 
+## Troubleshooting
+
+- **`gamelist.xml` won't parse / looks corrupted after using a Mac card
+  reader.** Some macOS ext4 drivers (observed with Paragon's `UFSD_EXTFS4`)
+  can replace `gamelist.xml` with a small macOS extended-attribute blob
+  instead of the real file while the card sits mounted — this is a driver
+  bug, not something pmscraper does. Check `gamelist.xml.bak` next to it;
+  pmscraper backs the file up there before every write, so your data is
+  almost always recoverable: `cp gamelist.xml.bak gamelist.xml`.
+- **`--online` fails with an SSL certificate error on macOS.** A local
+  Python/certifi quirk, not a tool bug — it degrades to offline automatically.
+  Set `SSL_CERT_FILE=/etc/ssl/cert.pem` if you need `--online` to work from a
+  Mac.
+
 ## Development
 
 ```sh

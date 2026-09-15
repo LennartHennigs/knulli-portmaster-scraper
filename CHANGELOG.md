@@ -23,6 +23,18 @@ force a full rewrite from the device.
   installed port's data straight from the device, no SSH needed. The
   existing "PortMaster Scraper" entry is unchanged (fills gaps only).
 
+### Known issues
+- **macOS card readers can corrupt `gamelist.xml` on ext4 cards.** Observed
+  with the Paragon `UFSD_EXTFS4` driver: after ejecting and later re-mounting
+  a card, `gamelist.xml` was replaced by a 4KB macOS AppleDouble/extended-
+  attribute blob (a `com.apple.provenance` xattr written in place of the
+  file's real content) instead of valid XML. Not caused by pmscraper — it
+  writes normally (backup + atomic replace) and the corruption happened
+  between runs, purely from the card sitting mounted on macOS. If
+  `gamelist.xml` won't parse after pulling the card from a Mac, check
+  `gamelist.xml.bak` (pmscraper backs it up before every write) before
+  assuming data is lost.
+
 ## v1.2.1
 
 Visible version + a success toast you can actually see.
