@@ -12,8 +12,15 @@ metadata (`port.json`) and downloaded its artwork (`images_pm/`) onto the SD
 card. The tool *transcribes* that into `/userdata/roms/ports/gamelist.xml`. It
 works fully offline; `--online` only tops up covers from PortMaster's repo.
 
-Root cause it solves: PortMaster's own KNULLI gamelist writer only fires for
-ports shipping a `gameinfo.xml`, and **0 of ~1386 ports ship one**.
+Root cause it solves: neither PortMaster nor ES ever turns a port's own
+metadata — `port.json`, or a porter-shipped `gameinfo.xml` — into a KNULLI
+gamelist entry, no matter which files the port ships.
+
+Text-field precedence, when a port has more than one source available:
+`gameinfo.xml` (porter-authored editorial text, present on most but not all
+installed ports — see below) > `port.json` > `--online` catalog. Art
+precedence: `images_pm` cache > cover shipped in the port's own directory >
+`--online` download.
 
 ## Scope / non-goals
 
@@ -81,23 +88,31 @@ user's actual SD card (mounted at `/Volumes/ROMs`, **ext4**) and KNULLI source:
   relaunches ES). HTTP `GET /restart` REBOOTS THE DEVICE — don't use it.
   `/reloadgames` from a launched port (ES backgrounded) won't repaint until ES is
   foreground → tell the user to run **Update Gamelists** (or reboot).
-- **Network / covers:** `images_pm` holds **screenshots only (0 covers)**;
-  PortMaster has covers for ~52% of ports (712/1348) upstream, so `--online` is
-  required for box art. `<image>`=screenshot, `<thumbnail>`("Box")=cover — keep
-  strict, NEVER a screenshot in the box slot (user correction). Launcher uses
-  `--online` (degrades cleanly offline → `Temporary failure in name resolution`);
-  auto-run hook stays offline. On macOS, `--online` needs
+- **Network / covers:** `images_pm` on a fresh card holds **screenshots only
+  (0 covers)** — but most ports ship their **own cover file directly in their
+  port directory** (`<portdir>/cover.*`; verified 38/45 installed ports on the
+  user's card, including four — `descent`, `descent2`, `doom3`, `masseffect`
+  — whose `port.json` doesn't declare a `covers[]` entry at all, so even
+  `--online` couldn't find one before `local_cover()` was added). `--online`
+  is still the last resort for the remainder: PortMaster has covers for ~52%
+  of ports (712/1348) upstream. `<image>`=screenshot, `<thumbnail>`("Box")=
+  cover — keep strict, NEVER a screenshot in the box slot (user correction).
+  Launcher uses `--online` (degrades cleanly offline → `Temporary failure in
+  name resolution`); auto-run hook stays offline. On macOS, `--online` needs
   `SSL_CERT_FILE=/etc/ssl/cert.pem`; the device's own certs work.
 - **gamelist entries carry `id` attributes and pre-existing metadata** from ES's
   own ScreenScraper runs — the merge MUST stay non-destructive (see below).
 
 ## Architecture (pmscraper.py)
 
-Flow in `main()`: discover dirs → `index_images` → `scan_installed_ports` →
+Flow in `main()`: discover dirs → `index_images` → `scan_installed_ports`
+(also picks up each port's `gameinfo.xml`, if any, via `parse_gameinfo`, and
+stashes the port's own directory as `info["_portdir"]`) →
 `enumerate_es_entries` (walk like ES: `.sh`/`.squashfs`, skip dot-entries and
 the top-level tool launchers in `SKIP_LAUNCHERS`) → `classify` into buckets →
-resolve art +
-`build_fields` + `completeness` → merge → `print_summary`/`write_report` →
+resolve art (`resolve_art` → `local_cover` before `download_art`) +
+`build_fields` (layers `gameinfo.xml` text over `port.json`'s, field by
+field) + `completeness` → merge → `print_summary`/`write_report` →
 `reload_es`.
 
 **Buckets:** `port.json` / `catalog` (stem matches upstream archive name, needs
@@ -108,10 +123,14 @@ resolve art +
 **Selectors/actions:** `--since EPOCH` = only ports whose `port.json` is newer
 (auto-run's "new ports only"; game-start records `date +%s`, game-end passes it);
 `--emit-progress` = PMPROG lines on stdout + log→stderr, for the pugwash launcher;
-`--register-tools` = tidy gamelist entries for PortMaster + Scraper (`TOOL_ENTRIES`,
-non-destructive, present-launchers-only, needs `--apply`); `--unregister-self` =
-drop the scraper's own entry (install.sh --uninstall). Ports launcher = full scan;
-hooks = new-only. **Exit codes:** 0 ok, 1 unknowns present, 2 crash/setup error.
+`--register-tools` = tidy gamelist entries for PortMaster + both Scraper
+launchers (`TOOL_ENTRIES`, non-destructive, present-launchers-only, needs
+`--apply`); `--unregister-self` = drop both of the scraper's own entries
+(`SCRAPER_LAUNCHERS`, install.sh --uninstall). Two Ports-menu launchers: plain
+"PortMaster Scraper" = full scan, non-destructive (fills gaps only);
+"PortMaster Scraper (Rescan All)" = same but with `--force` (overwrites
+everything). Hooks = new-only (`--since`). **Exit codes:** 0 ok, 1 unknowns
+present, 2 crash/setup error.
 
 ### Invariants — do not break
 
@@ -127,10 +146,19 @@ hooks = new-only. **Exit codes:** 0 ok, 1 unknowns present, 2 crash/setup error.
   (e.g. `descent`, `descent2`). `download_art` normalizes it; never call
   `.get()` on it unguarded (it crashed the whole `--apply` run once).
 - **`SKIP_LAUNCHERS = frozenset(TOOL_ENTRIES)`** — the tool launchers
-  (`PortMaster.sh`, `PortMaster Scraper.sh`) are skipped in enumeration; else the
-  scraper reports *itself* as `unknown` and forces exit 1 on every auto-run.
-  Add a tool launcher to `TOOL_ENTRIES` and it's skipped + registered from that
-  one place.
+  (`PortMaster.sh`, `PortMaster Scraper.sh`, `PortMaster Scraper (Rescan
+  All).sh`) are skipped in enumeration; else the scraper reports *itself* as
+  `unknown` and forces exit 1 on every auto-run. Add a tool launcher to
+  `TOOL_ENTRIES` and it's skipped + registered from that one place.
+- **`gameinfo.xml` is porter-shipped, not something PortMaster's own scraper
+  writes** — a `<gameList><game>` doc some porters put directly in
+  `<portdir>/`, alongside `port.json`, with real editorial text. Only look for
+  it right there, never recursively (`freesynd/data/gameinfo.xml` on a real
+  card is an unrelated file that happens to share the name, nested two levels
+  deeper than any real one — a glob that recursed would pick it up wrongly).
+  Its `<image>` tag is untrustworthy (sometimes a cover, sometimes a
+  screenshot, no way to tell which) — `parse_gameinfo` ignores it; art stays
+  on the `port.json`/`local_cover`/`images_pm`/`--online` pipeline.
 - **`name_cleaner` must mirror** `harbourmaster.util.name_cleaner` or artwork
   lookups misalign.
 - **stdlib `xml.etree` is intentional** (KNULLI ships no `defusedxml`; we only

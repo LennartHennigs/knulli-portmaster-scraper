@@ -1,18 +1,13 @@
 #!/bin/bash
-# PortMaster Scraper - launchable from the KNULLI / Batocera Ports menu.
+# PortMaster Scraper (Rescan All) - launchable from the KNULLI / Batocera Ports
+# menu.
 #
-# Scrapes the WHOLE ports folder (every installed port) and writes metadata +
-# artwork into the gamelist. Shows a native on-screen progress bar by driving
-# PortMaster's own GUI (pugwash) over its dialog FIFO - the same UI PortMaster
-# uses when it installs a port. Installed by install.sh into <roms>/ports/.
-#
-# Only fills in missing/new data - never overwrites a field that already has
-# a value. For a full forced rewrite (e.g. after updating pmscraper, or to
-# pick up better data for ports scraped by an older version), use the sibling
-# "PortMaster Scraper (Rescan All)" entry instead.
-#
-# (The auto-run game-end hook is the "new ports only" path; this entry is the
-# full scan-for-missing-data you run by hand.)
+# Same as the "PortMaster Scraper" entry, but with --force: re-resolves and
+# OVERWRITES every managed field (name/desc/image/thumbnail/genre/developer/
+# publisher/releasedate/rating/players/...) on every installed port, not just
+# ones that are missing data. Use this after updating pmscraper, or if a
+# port's metadata looks stale from an older run. Installed by install.sh into
+# <roms>/ports/.
 
 XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 
@@ -31,8 +26,8 @@ get_controls
 [ -f "${controlfolder}/mod_${CFW_NAME}.txt" ] && source "${controlfolder}/mod_${CFW_NAME}.txt"
 
 PMSCRAPER="$controlfolder/pmscraper/pmscraper.py"
-LOG="$controlfolder/pmscraper.log"
-REPORT="$controlfolder/pmscraper-report.md"
+LOG="$controlfolder/pmscraper-force.log"
+REPORT="$controlfolder/pmscraper-force-report.md"
 : > "$LOG"
 
 toast() {   # ES on-screen notifier (best-effort; only shows once ES is foreground)
@@ -53,7 +48,7 @@ $ESUDO chmod +x "$PMSCRAPER" 2>/dev/null || true
 # pay a python startup before the first frame; same one-liner make-release.sh
 # and the installer use. Empty on a miss, and the label just drops it.
 PMVER=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' "$PMSCRAPER" | head -1)
-TITLE="PortMaster Scraper${PMVER:+ v$PMVER}"
+TITLE="PortMaster Scraper - Rescan All${PMVER:+ v$PMVER}"
 
 # --- graphical progress via PortMaster's pugwash GUI ----------------------- #
 # PortMasterDialogInit starts pugwash in fifo_control mode; PortMasterDialog
@@ -63,11 +58,11 @@ PortMasterDialogInit "no-harbour"
 trap 'PortMasterDialogExit; pm_finish' EXIT
 
 PortMasterDialog "messages_begin"
-PortMasterDialog "message" "$TITLE\nscanning for new/missing data..."
+PortMasterDialog "message" "$TITLE\nre-scanning ALL ports - this overwrites existing data..."
 
 # --emit-progress: PMPROG lines on stdout (one per port), human log on stderr.
 # Drive the pugwash progress bar from each PMPROG line; log the rest.
-python3 "$PMSCRAPER" --apply --online --emit-progress --report "$REPORT" 2>>"$LOG" |
+python3 "$PMSCRAPER" --apply --online --force --emit-progress --report "$REPORT" 2>>"$LOG" |
 while IFS="$(printf '\t')" read -r tag idx total name; do
     [ "$tag" = "PMPROG" ] || continue
     PortMasterDialog "progress" "$name  [$idx/$total]" "$idx" "$total"

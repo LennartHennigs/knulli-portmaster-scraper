@@ -55,6 +55,14 @@ def port_json(title, script, genres=None, porter="Someone", desc="A game.",
     }
 
 
+def gameinfo_xml(**fields):
+    """A minimal <gameList><game> doc, mirroring what a porter's own
+    gameinfo.xml looks like (real desc/developer/publisher/releasedate/
+    genre/rating/players text, plus an <image> pmscraper must ignore)."""
+    tags = "".join(f"<{k}>{v}</{k}>" for k, v in fields.items())
+    return f"<?xml version='1.0'?><gameList><game>{tags}</game></gameList>"
+
+
 class Tree:
     """A synthetic <root>/roms/ports tree with a PortMaster config beside it."""
 
@@ -71,12 +79,15 @@ class Tree:
         p.write_text(body)
         return p
 
-    def add_port(self, title, script, portdir=None, **kw):
+    def add_port(self, title, script, portdir=None, gameinfo=None, **kw):
         self.add_sh(script)
         portdir = portdir or title.lower().replace(" ", "")
         d = self.ports / portdir
         d.mkdir(exist_ok=True)
         (d / "port.json").write_text(json.dumps(port_json(title, script, **kw)))
+        if gameinfo is not None:
+            (d / "gameinfo.xml").write_text(gameinfo_xml(**gameinfo))
+        return d
 
     def add_art(self, cleanname, screenshot=True, cover=True):
         if screenshot:
@@ -227,6 +238,95 @@ class PMScraperTests(unittest.TestCase):
         self.assertEqual(g.findtext("name"), "Descent")
         self.assertTrue(g.findtext("image").endswith("Descent-image.png"))
 
+    # --- gameinfo.xml text metadata (Part 1) ------------------------------ #
+
+    def test_gameinfo_overrides_text_fields(self):
+        t = self.tree
+        t.add_port("Undertale", "Undertale.sh", porter="krishenriksen",
+                    desc="UNDERTALE! The RPG game.",
+                    gameinfo={
+                        "name": "Undertale",
+                        "desc": "Years after a war between humans and monsters...",
+                        "genre": "RPG / Comedy",
+                        "developer": "tobyfox",
+                        "publisher": "Fangamer",
+                        "releasedate": "20170915T000000",
+                        "rating": "0.92",
+                        "players": "1",
+                        "image": "./undertale/cover.png",   # must be ignored
+                    })
+        t.add_art("undertale")
+        run(t, "--apply", expect=0)
+        g = t.games()["./Undertale.sh"]
+        self.assertIn("Years after a war", g.findtext("desc"))
+        self.assertEqual(g.findtext("genre"), "RPG / Comedy")
+        self.assertEqual(g.findtext("developer"), "tobyfox")   # not the porter
+        self.assertEqual(g.findtext("publisher"), "Fangamer")   # not "PortMaster"
+        self.assertEqual(g.findtext("releasedate"), "20170915T000000")
+        self.assertEqual(g.findtext("rating"), "0.9200")
+        self.assertEqual(g.findtext("players"), "1")
+        # image/thumbnail still resolved from the normal art pipeline, not
+        # gameinfo's <image> (which is deliberately ignored).
+        self.assertTrue(g.findtext("image").endswith("Undertale-image.png"))
+        self.assertTrue(g.findtext("thumbnail").endswith("Undertale-thumb.png"))
+
+    def test_gameinfo_absent_falls_back_to_port_json(self):
+        t = self.tree
+        t.add_port("Balatro", "Balatro.sh")   # no gameinfo kwarg
+        t.add_art("balatro")
+        run(t, "--apply", expect=0)
+        g = t.games()["./Balatro.sh"]
+        self.assertEqual(g.findtext("publisher"), "PortMaster")
+        self.assertEqual(g.findtext("developer"), "Someone")   # porter fallback
+        self.assertIsNone(g.find("releasedate"))   # no --port-dates, no gameinfo
+        self.assertIsNone(g.find("players"))
+
+    def test_malformed_gameinfo_falls_back_and_does_not_crash(self):
+        t = self.tree
+        d = t.add_port("Balatro", "Balatro.sh")
+        t.add_art("balatro")
+        (d / "gameinfo.xml").write_text("<gameList><game><not-closed>")
+        proc = run(t, "--apply", expect=0)
+        self.assertIn("skipping", proc.stdout)
+        g = t.games()["./Balatro.sh"]
+        self.assertEqual(g.findtext("publisher"), "PortMaster")   # fell back
+
+    def test_gameinfo_respects_non_destructive_merge(self):
+        t = self.tree
+        t.add_port("Undertale", "Undertale.sh",
+                    gameinfo={"desc": "The real editorial description."})
+        t.add_art("undertale")
+        t.write_gamelist(
+            "<?xml version='1.0'?><gameList><game>"
+            "<path>./Undertale.sh</path><desc>hand-written desc</desc>"
+            "</game></gameList>")
+        run(t, "--apply", expect=0)
+        self.assertEqual(t.games()["./Undertale.sh"].findtext("desc"),
+                          "hand-written desc")   # untouched without --force
+        run(t, "--apply", "--force", expect=0)
+        self.assertIn("The real editorial description.",
+                       t.games()["./Undertale.sh"].findtext("desc"))
+
+    # --- locally-shipped cover art (Part 2) -------------------------------- #
+
+    def test_local_cover_used_without_covers_declared(self):
+        t = self.tree
+        d = t.add_port("Descent", "Descent.sh", covers=())   # no covers[]
+        (d / "cover.png").write_bytes(PNG_B)
+        run(t, "--apply", expect=0)   # offline, no --online
+        g = t.games()["./Descent.sh"]
+        self.assertTrue(g.findtext("thumbnail").endswith("Descent-thumb.png"))
+
+    def test_images_pm_cache_wins_over_local_cover(self):
+        t = self.tree
+        d = t.add_port("Descent", "Descent.sh")
+        (d / "cover.png").write_bytes(PNG_B)
+        t.add_art("descent", screenshot=False, cover=True)   # cached cover
+        run(t, "--apply", expect=0)
+        cached = t.images_pm / "descent.cover.png"
+        dest = t.ports / "images" / "Descent-thumb.png"
+        self.assertEqual(dest.read_bytes(), cached.read_bytes())
+
     # --- classification (PLAN verification 2) ---------------------------- #
 
     def test_unknown_untouched_and_exit_1(self):
@@ -350,6 +450,34 @@ class PMScraperTests(unittest.TestCase):
         run(t, "--apply", "--register-tools")
         self.assertNotIn("./PortMaster.sh", t.games())
         self.assertIn("./PortMaster Scraper.sh", t.games())
+
+    def test_register_tools_adds_rescan_all_launcher_when_present(self):
+        t = self.tree
+        t.add_sh("PortMaster Scraper (Rescan All).sh")   # the other two absent
+        run(t, "--apply", "--register-tools")
+        games = t.games()
+        self.assertNotIn("./PortMaster.sh", games)
+        self.assertNotIn("./PortMaster Scraper.sh", games)
+        self.assertEqual(
+            games["./PortMaster Scraper (Rescan All).sh"].findtext("name"),
+            "PortMaster Scraper (Rescan All)")
+
+    def test_unregister_self_removes_both_scraper_entries(self):
+        t = self.tree
+        t.write_gamelist(
+            "<?xml version='1.0'?><gameList>"
+            "<game><path>./PortMaster.sh</path><name>PortMaster</name></game>"
+            "<game><path>./PortMaster Scraper.sh</path><name>PortMaster Scraper</name></game>"
+            "<game><path>./PortMaster Scraper (Rescan All).sh</path>"
+            "<name>PortMaster Scraper (Rescan All)</name></game>"
+            "<game><path>./Balatro.sh</path><name>Balatro</name></game>"
+            "</gameList>")
+        run(t, "--apply", "--unregister-self")
+        games = t.games()
+        self.assertNotIn("./PortMaster Scraper.sh", games)                    # removed
+        self.assertNotIn("./PortMaster Scraper (Rescan All).sh", games)       # removed
+        self.assertIn("./PortMaster.sh", games)                               # kept
+        self.assertIn("./Balatro.sh", games)                                  # kept
 
     def test_unregister_self_removes_only_scraper_entry(self):
         t = self.tree

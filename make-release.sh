@@ -31,6 +31,7 @@ trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/ports" "$STAGE/hooks/game-start" "$STAGE/hooks/game-end"
 cp pmscraper.py install.sh                       "$STAGE/"
 cp "ports/PortMaster Scraper.sh"                 "$STAGE/ports/"
+cp "ports/PortMaster Scraper (Rescan All).sh"    "$STAGE/ports/"
 cp hooks/game-start/pmscraper-trigger.sh         "$STAGE/hooks/game-start/"
 cp hooks/game-end/pmscraper-hook.sh              "$STAGE/hooks/game-end/"
 

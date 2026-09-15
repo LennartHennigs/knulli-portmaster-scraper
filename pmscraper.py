@@ -7,9 +7,19 @@ do not know about), this reads the metadata PortMaster already put on the SD car
 and writes it straight into /userdata/roms/ports/gamelist.xml.
 
 Sources of truth, in order:
-  1. <ports>/<portdir>/port.json          - written by PortMaster on install
-  2. <tools>/PortMaster/config/images_pm/ - artwork cache (images.zip)
-  3. --online: ports.json + screenshots from the PortMaster GitHub release
+  1. <ports>/<portdir>/gameinfo.xml       - porter-authored editorial text,
+                                             when the port ships one
+  2. <ports>/<portdir>/port.json          - written by PortMaster on install
+  3. <ports>/<portdir>/cover.*            - cover art shipped with the port
+  4. <tools>/PortMaster/config/images_pm/ - artwork cache (images.zip)
+  5. --online: ports.json + screenshots from the PortMaster GitHub release
+
+gameinfo.xml is not, as the name might suggest, something PortMaster's own
+KNULLI gamelist writer produces - it is a <gameList><game> document some
+porters ship directly inside their port's own directory, alongside
+port.json, with real editorial text (game description, real developer/
+publisher, release date) instead of port.json's short install blurb. Only
+its text fields are used; its <image> tag is ignored (see parse_gameinfo).
 
 Usage:
     python3 pmscraper.py                 # dry run, prints what it would do
@@ -38,7 +48,7 @@ import xml.etree.ElementTree as ET
 
 from pathlib import Path
 
-VERSION = "1.2.1"
+VERSION = "1.3.0"
 
 PORTS_JSON_URL = "https://github.com/PortsMaster/PortMaster-New/releases/latest/download/ports.json"
 RAW_PORT_URL = "https://raw.githubusercontent.com/PortsMaster/PortMaster-New/main/ports/{port}/{file}"
@@ -69,11 +79,13 @@ CFG_DIR_CANDIDATES = (
 # (favorite, playcount, lastplayed, hidden, ...) is left untouched.
 MANAGED_TAGS = (
     "name", "desc", "image", "thumbnail", "titleshot", "genre", "tags",
-    "developer", "publisher", "releasedate", "rating",
+    "developer", "publisher", "releasedate", "rating", "players",
 )
 
-# Our own Ports-menu launcher (referenced by name in --unregister-self).
+# Our own Ports-menu launchers (referenced by name in --unregister-self).
 SCRAPER_LAUNCHER = "PortMaster Scraper.sh"
+SCRAPER_FORCE_LAUNCHER = "PortMaster Scraper (Rescan All).sh"
+SCRAPER_LAUNCHERS = (SCRAPER_LAUNCHER, SCRAPER_FORCE_LAUNCHER)
 
 # The tool launchers (not scrapeable games): metadata written by --register-tools
 # so they read as proper entries instead of bare filenames, and the single source
@@ -93,6 +105,15 @@ TOOL_ENTRIES = {
                  "installed PortMaster ports and writes them into the Ports "
                  "gamelist. Run it after installing ports - new installs are "
                  "also picked up automatically when you exit PortMaster."),
+        "genre": "Utility",
+        "publisher": "PortMaster",
+    },
+    SCRAPER_FORCE_LAUNCHER: {
+        "name": "PortMaster Scraper (Rescan All)",
+        "desc": ("Re-scrapes every installed port and overwrites existing "
+                 "gamelist data with freshly-resolved names, descriptions, "
+                 "art and other fields. Use this after updating pmscraper, "
+                 "or if a port's metadata looks stale."),
         "genre": "Utility",
         "publisher": "PortMaster",
     },
@@ -276,7 +297,8 @@ def _as_list(value):
 
 
 def scan_installed_ports(ports_dir):
-    """Every <ports>/<dir>/port.json PortMaster wrote at install time."""
+    """Every <ports>/<dir>/port.json PortMaster wrote at install time, plus
+    any gameinfo.xml a porter shipped beside it (see parse_gameinfo)."""
     port_files = sorted(ports_dir.glob("*/port.json")) + sorted(ports_dir.glob("*/*.port.json"))
 
     seen_dirs = set()
@@ -302,6 +324,11 @@ def scan_installed_ports(ports_dir):
             # A port with no launcher .sh in the ports root (background service
             # like librespot, or a data-only pack). Nothing for ES to show.
             continue
+
+        info["_portdir"] = pf.parent
+        gameinfo = pf.parent / "gameinfo.xml"
+        if gameinfo.is_file():
+            info["_gameinfo"] = parse_gameinfo(gameinfo)
 
         try:
             mtime = pf.stat().st_mtime   # when PortMaster last wrote this port
@@ -406,54 +433,128 @@ def download_art(info, kind, dest_dir):
     return out
 
 
+def local_cover(info, portdir):
+    """A cover file the porter shipped directly in the port's own directory -
+    no images_pm cache or --online needed. Tries port.json's declared
+    covers[] filename first, then the conventional `cover.*` name many ports
+    use even when port.json declares none (e.g. descent, descent2, doom3,
+    masseffect all ship a local cover.png with no covers[] entry at all)."""
+    if portdir is None:
+        return None
+    img = (info.get("attr") or {}).get("image")
+    if isinstance(img, dict):
+        for c in (img.get("covers") or []):
+            p = portdir / c
+            if p.is_file():
+                return p
+    for p in sorted(portdir.glob("cover.*")):
+        if p.suffix.lower() in (".png", ".jpg", ".jpeg"):
+            return p
+    return None
+
+
+GAMEINFO_TAGS = ("name", "desc", "genre", "developer", "publisher",
+                  "releasedate", "rating", "players")
+
+
+def parse_gameinfo(path):
+    """<portdir>/gameinfo.xml, if the porter shipped one: a real
+    <gameList><game> doc (same shape pmscraper writes) with editorial text
+    richer than port.json's blurb. Only text tags are used - see
+    GAMEINFO_TAGS; <image> is deliberately ignored (it inconsistently holds a
+    cover or a screenshot with no way to tell which, unlike port.json's
+    typed image dict)."""
+    try:
+        game = ET.parse(str(path)).getroot().find("game")
+    except (OSError, ET.ParseError) as err:
+        log(f"  ! skipping {path}: {err}")
+        return {}
+    if game is None:
+        return {}
+    out = {}
+    for tag in GAMEINFO_TAGS:
+        text = (game.findtext(tag) or "").strip()
+        if text:
+            out[tag] = text
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # gamelist.xml
 # --------------------------------------------------------------------------- #
 
 def build_fields(info, scripts, path, art, port_dates=False, prefer_covers=False):
     attr = info.get("attr") or {}
+    gi = info.get("_gameinfo") or {}
 
     if len(scripts) > 1:
         name = Path(path).stem
     else:
-        name = attr.get("title") or Path(path).stem
+        name = gi.get("name") or attr.get("title") or Path(path).stem
 
     fields = {"name": name}
 
-    desc = (attr.get("desc") or "").strip()
+    desc = (gi.get("desc") or attr.get("desc") or "").strip()
     inst = (attr.get("inst") or "").strip()
     if desc and inst and inst.lower() not in ("ready to run.", "ready to run"):
         desc = f"{desc}\n\n{inst}"
     if desc:
         fields["desc"] = desc
 
+    if gi.get("genre"):
+        # Already ES-styled (e.g. "Shooter / 1st person-Action-Shooter") -
+        # unlike port.json's raw lowercase genre keys, skip GENRE_FIXUPS.
+        fields["genre"] = gi["genre"]
     genres = [g for g in (attr.get("genres") or []) if g]
     if genres:
-        fields["genre"] = ", ".join(GENRE_FIXUPS.get(g, g.title()) for g in genres)
-        # Raw genres for ES's tag-based filtering.
+        if "genre" not in fields:
+            fields["genre"] = ", ".join(GENRE_FIXUPS.get(g, g.title()) for g in genres)
+        # Raw genres for ES's tag-based filtering - gameinfo has no
+        # raw-keyword equivalent, so this always comes from port.json.
         fields["tags"] = ", ".join(genres)
 
-    porters = [p for p in (attr.get("porter") or []) if p]
-    if porters:
-        fields["developer"] = ", ".join(porters)
-    fields["publisher"] = "PortMaster"
+    if gi.get("developer"):
+        fields["developer"] = gi["developer"]
+    else:
+        porters = [p for p in (attr.get("porter") or []) if p]
+        if porters:
+            fields["developer"] = ", ".join(porters)
+    fields["publisher"] = gi.get("publisher") or "PortMaster"
 
-    # date_added is when the *port* landed, not when the game came out, so this
-    # is opt-in - it is useful for "sort by newest port", misleading otherwise.
-    if port_dates:
+    if gi.get("players"):
+        fields["players"] = gi["players"]
+
+    # gameinfo's releasedate is the game's real release date, already in
+    # gamelist format - unlike --port-dates below, no "misleading" caveat.
+    gi_date = gi.get("releasedate") or ""
+    if re.match(r"^\d{8}T\d{6}$", gi_date):
+        fields["releasedate"] = gi_date
+    elif port_dates:
+        # date_added is when the *port* landed, not when the game came out,
+        # so this is opt-in - useful for "sort by newest port", misleading
+        # otherwise.
         source = info.get("source") or {}
         added = source.get("date_added") or ""
         if re.match(r"^\d{4}-\d{2}-\d{2}$", added):
             fields["releasedate"] = added.replace("-", "") + "T000000"
 
-    rating = info.get("rating") or {}
-    avg, mx = rating.get("average_rating"), rating.get("max_rating")
+    gi_rating = None
     try:
-        denom = float(mx or 5)
-        if avg is not None and denom > 0:
-            fields["rating"] = f"{max(0.0, min(1.0, float(avg) / denom)):.4f}"
+        if gi.get("rating") is not None:
+            gi_rating = float(gi["rating"])
     except (TypeError, ValueError):
-        pass
+        gi_rating = None
+    if gi_rating is not None and 0.0 <= gi_rating <= 1.0:
+        fields["rating"] = f"{gi_rating:.4f}"
+    else:
+        rating = info.get("rating") or {}
+        avg, mx = rating.get("average_rating"), rating.get("max_rating")
+        try:
+            denom = float(mx or 5)
+            if avg is not None and denom > 0:
+                fields["rating"] = f"{max(0.0, min(1.0, float(avg) / denom)):.4f}"
+        except (TypeError, ValueError):
+            pass
 
     shot = art.get("screenshot")
     cover = art.get("cover")
@@ -575,17 +676,20 @@ def register_tools(ports_dir, gamelist, apply, reload_when_done=True):
 
 
 def unregister_self(gamelist, apply, reload_when_done=True):
-    """Remove the scraper's own gamelist entry (used by install.sh --uninstall).
-    Leaves PortMaster's entry alone - PortMaster stays installed."""
+    """Remove the scraper's own gamelist entries (used by install.sh
+    --uninstall). Leaves PortMaster's entry alone - PortMaster stays
+    installed."""
     root = load_gamelist(gamelist)
-    game = index_by_path(root).get(SCRAPER_LAUNCHER)
-    if game is not None and apply:
-        root.remove(game)
-    return commit_gamelist(root, gamelist, game is not None, apply,
+    by_path = index_by_path(root)
+    games = [by_path[name] for name in SCRAPER_LAUNCHERS if name in by_path]
+    if games and apply:
+        for game in games:
+            root.remove(game)
+    return commit_gamelist(root, gamelist, bool(games), apply,
                            reload_when_done,
                            "no PortMaster Scraper entry to remove",
-                           "would remove the PortMaster Scraper gamelist entry",
-                           apply_msg="removed the PortMaster Scraper gamelist entry")
+                           "would remove the PortMaster Scraper gamelist entry(ies)",
+                           apply_msg="removed the PortMaster Scraper gamelist entry(ies)")
 
 
 # --------------------------------------------------------------------------- #
@@ -745,6 +849,11 @@ def resolve_art(e, images, media_dir, ports_dir, cfg_dir, apply, online):
     return {kind: gamelist-relative-path}. The single place that knows how art
     files are named on disk."""
     art_src = dict(images.get(port_stem(e.info), {}))
+
+    if "cover" not in art_src:
+        got = local_cover(e.info, e.info.get("_portdir"))
+        if got:
+            art_src["cover"] = got
 
     if online and apply and cfg_dir is not None:
         for kind in ART_DEST_SUFFIX:
